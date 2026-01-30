@@ -529,6 +529,28 @@ class TestCase(unittest.TestCase):
             json.dumps({"Name": name, "Action": "replicate:localhost", "Timer": 0}),
         )
 
+
+    def test_schedule_snapshot_sync(self):
+        # create a volume with a file
+        name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
+        self.create_a_volume_with_a_file(name)
+        # Schedule snapshot_sync of the volume every 120 minutes
+        self.app.post(
+            "/VolumeDriver.Schedule",
+            json.dumps({"Name": name, "Action": "snapshot_sync:localhost", "Timer": 120}),
+        )
+
+        # simulate the last snapshot_sync is 1 day in the past
+        schedule_log = {"snapshot_sync:localhost": {name: datetime.now() - timedelta(days=1)}}
+        # run the scheduler jobs jobs and check we only two local snapshots and one remote snapshot
+        runjobs(SCHEDULE, test=True, schedule_log=schedule_log)
+        self.assertEqual(2, len(os.listdir(SNAPSHOTS_PATH)))
+        self.assertEqual(1, len(os.listdir(TEST_REMOTE_PATH)))
+
+        # unschedule the last job
+        self.app.post( "/VolumeDriver.Schedule", json.dumps({"Name": "boo", "Action": "snapshot_sync:localhost", "Timer": 0}), )
+
+
     def test_restore(self):
         """Check we can restore a snapshot as a volume"""
         # create a volume with a file
