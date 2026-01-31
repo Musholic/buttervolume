@@ -656,10 +656,26 @@ def snapshot(name):
     if not os.path.exists(path) or not btrfs.Subvolume(path).exists():
         raise VolumeNotFoundError(f"Volume '{name}': no such volume")
 
+    # First sync the filesystem
+    btrfs.run_safe(["btrfs", "filesystem", "sync", VOLUMES_PATH], timeout=30)
+
+    try:
+        last_snapshot = get_last_snapshot(name, os.listdir(SNAPSHOTS_PATH))
+    except SnapshotNotFoundError:
+        last_snapshot = None
+
     timestamped = f"{name}@{datetime.now().strftime(DTFORMAT)}"
     snapshot_path = join(SNAPSHOTS_PATH, timestamped)
 
     btrfs.Subvolume(path).snapshot(snapshot_path, readonly=True)
+
+    # Check if there are actual changes since the last snapshot (if any)
+    # if not we delete the new snapshot and return the last one
+    if last_snapshot:
+        last_snapshot_path = join(SNAPSHOTS_PATH, last_snapshot)
+        if btrfs.Subvolume(snapshot_path).is_same_as(last_snapshot_path):
+            btrfs.Subvolume(snapshot_path).delete()
+            return last_snapshot
 
     return timestamped
 
@@ -788,7 +804,8 @@ def schedule_enable(_):
 
 def get_last_snapshot(volume_name, snapshots: list[str]):
     validate_volume_name(volume_name)
-    snapshots = [s for s in snapshots if s.startswith(volume_name + "@")]
+    # Filter out tracking snapshots
+    snapshots = [s for s in snapshots if s.startswith(volume_name + "@") and len(s.split("@")) == 2]
     if not snapshots:
         raise SnapshotNotFoundError(f"No snapshots found for volume '{volume_name}'")
     return sorted(snapshots)[-1]

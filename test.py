@@ -456,6 +456,13 @@ class TestCase(unittest.TestCase):
         self.assertEqual(len(schedule), 1)
         # simulate the last snapshot is 1 day in the past
         schedule_log = {"snapshot": {name2: datetime.now() - timedelta(days=1)}}
+
+        # Modify the foobar file in each volume (otherwise the snapshot will be skipped)
+        for volume in [name, name2]:
+            path = join(VOLUMES_PATH, volume)
+            with open(join(path, "foobar"), "w") as f:
+                f.write("modified foobar")
+
         # run the scheduler jobs and check we only have one more snapshot
         runjobs(SCHEDULE, test=True, schedule_log=schedule_log)
         self.assertEqual(
@@ -544,7 +551,14 @@ class TestCase(unittest.TestCase):
         schedule_log = {"snapshot_sync:localhost": {name: datetime.now() - timedelta(days=1)}}
         # run the scheduler jobs jobs and check we only two local snapshots and one remote snapshot
         runjobs(SCHEDULE, test=True, schedule_log=schedule_log)
-        self.assertEqual(2, len(os.listdir(SNAPSHOTS_PATH)))
+        snapshots = os.listdir(SNAPSHOTS_PATH)
+        self.assertEqual(2, len(snapshots))
+        self.assertEqual(1, len(os.listdir(TEST_REMOTE_PATH)))
+
+        # Also check we don't create "empty" snapshots
+        schedule_log = {"snapshot_sync:localhost": {name: datetime.now() - timedelta(days=1)}}
+        runjobs(SCHEDULE, test=True, schedule_log=schedule_log)
+        self.assertEqual(snapshots, os.listdir(SNAPSHOTS_PATH))
         self.assertEqual(1, len(os.listdir(TEST_REMOTE_PATH)))
 
         # unschedule the last job
