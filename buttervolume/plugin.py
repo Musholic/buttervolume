@@ -380,8 +380,15 @@ def get_last_remote_snapshot(volume_name, remote_host, test=False):
 
 def snapshot_sync(name, schedule, test=False):
     remote_host = schedule["Action"].split(":")[1]
-    last_remote_snapshot = get_last_remote_snapshot(name, remote_host, test)
-    last_local_snapshot = get_last_snapshot(name, os.listdir(SNAPSHOTS_PATH))
+    try:
+        last_remote_snapshot = get_last_remote_snapshot(name, remote_host, test)
+    except SnapshotNotFoundError:
+        last_remote_snapshot = None
+
+    try:
+        last_local_snapshot = get_last_snapshot(name, os.listdir(SNAPSHOTS_PATH))
+    except SnapshotNotFoundError:
+        last_local_snapshot = None
 
     # Check if remote snapshot exists and is newer than local
     if last_remote_snapshot and (not last_local_snapshot or last_remote_snapshot > last_local_snapshot):

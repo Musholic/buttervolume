@@ -1000,6 +1000,68 @@ class TestCase(unittest.TestCase):
             self.assertEqual(x.read(), "backuped foobar3")
 
 
+    def test_snapshot_sync_at_mount_with_no_snapshot(self):
+        # create a volume with snapshot_sync schedule
+        name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
+        path = join(VOLUMES_PATH, name)
+        self.app.post(
+            "/VolumeDriver.Create", json.dumps({"Name": name, "Opts": {"schedules": "snapshot_sync:localhost 1"}})
+        )
+
+        # mount
+        resp = jsonloads(
+            self.app.post("/VolumeDriver.Mount", json.dumps({"Name": name, "Test": True})).body
+        )
+        self.assertEqual(resp["Err"], "")
+        self.assertEqual(resp["Mountpoint"], join(VOLUMES_PATH, name))
+
+
+    def test_snapshot_sync_at_mount_with_only_remote_snapshot(self):
+        # create a volume with snapshot_sync schedule
+        name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
+        path = join(VOLUMES_PATH, name)
+        resp = jsonloads(
+            self.app.post(
+                "/VolumeDriver.Create", json.dumps({"Name": name, "Opts": {"schedules": "snapshot_sync:localhost 1"}})
+            ).body
+        )
+        self.assertEqual(resp, {"Err": ""})
+
+        # snapshot
+        with open(join(path, "foobar"), "w") as f:
+            f.write("correct foobar1")
+        resp = self.app.post("/VolumeDriver.Snapshot", json.dumps({"Name": name}))
+        snapshot = json.loads(resp.body.decode())["Snapshot"]
+
+        # send the recent snapshot (to the same host with another name)
+        self.app.post(
+            "/VolumeDriver.Snapshot.Send",
+            json.dumps({"Name": snapshot, "Host": "localhost", "Test": True}),
+        )
+
+        # Remove the recent snapshot + the localhost sent one
+        self.app.post("/VolumeDriver.Snapshot.Remove", json.dumps({"Name": snapshot}))
+        self.app.post("/VolumeDriver.Snapshot.Remove", json.dumps({"Name": snapshot + "@localhost"}))
+
+        # modify the file
+        with open(join(path, "foobar"), "w") as f:
+            f.write("backuped foobar2")
+
+        # check we have no local snapshots and one remote one before mount
+        self.assertEqual( 0, len(os.listdir(SNAPSHOTS_PATH)))
+        self.assertEqual( 1, len(os.listdir(TEST_REMOTE_PATH)))
+
+        # mount
+        resp = jsonloads(
+            self.app.post("/VolumeDriver.Mount", json.dumps({"Name": name, "Test": True})).body
+        )
+        self.assertEqual(resp["Mountpoint"], join(VOLUMES_PATH, name))
+
+        # Should have restored the remote snapshot automatically
+        with open(join(path, "foobar")) as x:
+            self.assertEqual(x.read(), "correct foobar1")
+
+
     def test_snapshot_sync_at_unmount(self):
         """Check that we automatically send a snapshot at unmount when snapshot_sync is active"""
         # create a volume with snapshot_sync schedule
