@@ -571,6 +571,7 @@ def get_parent_path(snapshot_name, remote_host):
 
 @route("/VolumeDriver.Snapshot.Send", ["POST"])
 @add_debug_log
+@safe_handler
 def snapshot_send_req(req):
     """The last sent snapshot is remembered by adding a suffix with the target"""
     test = req.get("Test", False)
@@ -584,16 +585,16 @@ def snapshot_send_req(req):
 
 def snapshot_send(snapshot_name, remote_host, test=False):
     # Validate inputs
-    try:
-        validate_volume_name(snapshot_name.split("@")[0])  # Validate base volume name
-        validate_hostname(remote_host)
-    except ValidationError as e:
-        return {"Err": str(e)}
+    validate_volume_name(snapshot_name.split("@")[0])  # Validate base volume name
+    validate_hostname(remote_host)
 
     snapshot_path = join(SNAPSHOTS_PATH, snapshot_name)
     remote_snapshots = SNAPSHOTS_PATH if not test else TEST_REMOTE_PATH
 
     parent_path, sent_snapshots = get_parent_path(snapshot_name, remote_host)
+    if parent_path == snapshot_path:
+        raise ReplicationError("Snapshot already exists on remote")
+
     port = os.getenv("SSH_PORT", "1122")
 
     try:
@@ -603,25 +604,20 @@ def snapshot_send(snapshot_name, remote_host, test=False):
         log.warning(
             "Failed using parent %s. Sending full snapshot %s: %s", parent_path, snapshot_path, str(e)
         )
-        try:
-            # Try to remove existing snapshot on remote and send full
 
-            rm_cmd = [
-                "ssh",
-                "-p",
-                port,
-                "-o",
-                "StrictHostKeyChecking=no",
-                remote_host,
-                f"btrfs subvolume delete {remote_snapshots}/{snapshot_name} || true",
-            ]
-            subprocess.run(rm_cmd, check=False, capture_output=True)
+        rm_cmd = [
+            "ssh",
+            "-p",
+            port,
+            "-o",
+            "StrictHostKeyChecking=no",
+            remote_host,
+            f"btrfs subvolume delete {remote_snapshots}/{snapshot_name} || true",
+        ]
+        subprocess.run(rm_cmd, check=False, capture_output=True)
 
-            # Send without parent
-            run_btrfs_send_receive(snapshot_path, remote_host, remote_snapshots, None, port)
-        except ReplicationError as e2:
-            log.error("Failed sending full snapshot: %s", str(e2))
-            return {"Err": str(e2)}
+        # Send without parent
+        run_btrfs_send_receive(snapshot_path, remote_host, remote_snapshots, None, port)
 
     manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots)
 
@@ -726,7 +722,7 @@ def schedule_req(req):
     name = req["Name"]
     timer = str(req["Timer"])
     action = req["Action"]
-    schedule(name, timer, action)
+    return schedule(name, timer, action)
 
 
 def schedule(name, timer, action):

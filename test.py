@@ -359,6 +359,11 @@ class TestCase(unittest.TestCase):
             btrfs.Subvolume(remote_path).show()["UUID"],
             btrfs.Subvolume(remote_path2).show()["Parent UUID"],
         )
+        # Send the same snapshot to the same host
+        resp = json.loads(self.app.post(
+            "/VolumeDriver.Snapshot.Send",
+            json.dumps({"Name": snapshot2, "Host": "localhost", "Test": True})).body.decode())
+        self.assertEqual(resp, {"Err": "Snapshot already exists on remote"})
 
     def test_snapshot(self):
         """Check we can snapshot a volume"""
