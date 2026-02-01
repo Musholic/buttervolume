@@ -339,6 +339,11 @@ def volume_create(req):
             action, timer = schedule_opt_parts
             schedule(name, timer, action)
 
+    # If there is a snapshot sync schedule, we should immediately apply it to avoid data loss
+    snapshot_sync_schedule = get_schedule(name, "snapshot_sync")
+    if snapshot_sync_schedule:
+        snapshot_sync(name, snapshot_sync_schedule, req.get("Test", False))
+
     return {"Err": ""}
 
 
@@ -389,6 +394,11 @@ def snapshot_sync(name, schedule, test=False):
         last_local_snapshot = get_last_snapshot(name, os.listdir(SNAPSHOTS_PATH))
     except SnapshotNotFoundError:
         last_local_snapshot = None
+
+    # Ensure we at least restore the last local snapshot if the volume is still newly created
+    volpath = join(VOLUMES_PATH, name)
+    if last_local_snapshot and btrfs.Subvolume(volpath).is_new():
+        snapshot_restore(last_local_snapshot)
 
     # Check if remote snapshot exists and is newer than local
     if last_remote_snapshot and (not last_local_snapshot or last_remote_snapshot > last_local_snapshot):
@@ -844,13 +854,14 @@ def snapshot_restore(snapshot_name, target_name=None):
 
     volume_backup = None
     if volume.exists():
-        # backup and delete
-        timestamp = datetime.now().strftime(DTFORMAT)
-        stamped_name = f"{target_name}@{timestamp}"
-        stamped_path = join(SNAPSHOTS_PATH, stamped_name)
-        volume.snapshot(stamped_path, readonly=True)
+        if not volume.is_new():
+            # backup first before deleting
+            timestamp = datetime.now().strftime(DTFORMAT)
+            stamped_name = f"{target_name}@{timestamp}"
+            stamped_path = join(SNAPSHOTS_PATH, stamped_name)
+            volume.snapshot(stamped_path, readonly=True)
+            volume_backup = stamped_name
         volume.delete()
-        volume_backup = stamped_name
 
     snapshot.snapshot(target_path)
     return volume_backup

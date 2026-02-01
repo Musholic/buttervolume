@@ -142,6 +142,12 @@ class Subvolume:
         # When there are no changes, it will only output one line
         return len(lines.splitlines()) == 1
 
+    def is_new(self):
+        """Check if this subvolume is new"""
+        gen_at_creation = self.show()["Gen at creation"]
+        gen_now = self.show()["Generation"]
+        return gen_at_creation == gen_now
+
     @btrfs_operation(BtrfsSubvolumeError, "Failed to create snapshot", timeout=120)
     def snapshot(self, target, readonly=False):
         """Create a snapshot of this subvolume"""

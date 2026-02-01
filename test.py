@@ -1103,6 +1103,31 @@ class TestCase(unittest.TestCase):
         self.assertEqual( 1, len(os.listdir(TEST_REMOTE_PATH)))
 
 
+    def test_snapshot_sync_restore_after_removal(self):
+        """
+        Test that we can recover the last local snapshot after volume removal
+        The setup simulate an initial volume lifecycle with: create, mount, write, unmount and removal.
+        Then we recreate it and check the content was recovered from the last snapshot that happens automatically at unmount.
+        """
+        # Setup
+        name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
+        path = join(VOLUMES_PATH, name)
+        self.app.post("/VolumeDriver.Create", json.dumps({"Name": name, "Opts": {"schedules": "snapshot_sync:localhost 1"}}))
+        self.app.post("/VolumeDriver.Mount", json.dumps({"Name": name, "Test": True}))
+        with open(join(path, "foobar"), "w") as f:
+            f.write("correct foobar1")
+        jsonloads(self.app.post("/VolumeDriver.Unmount", json.dumps({"Name": name, "Test": True})).body)
+        self.app.post("/VolumeDriver.Remove", json.dumps({"Name": name}))
+
+        # Re-create the volume and mount it
+        self.app.post("/VolumeDriver.Create", json.dumps({"Name": name, "Opts": {"schedules": "snapshot_sync:localhost 1"}}))
+        self.app.post("/VolumeDriver.Mount", json.dumps({"Name": name, "Test": True}))
+
+        # Check the content of foobar
+        with open(join(path, "foobar")) as x:
+            self.assertEqual(x.read(), "correct foobar1")
+
+
 class TemporaryDirectory(tempfile.TemporaryDirectory):
     """Create and return a temporary directory. This change the
     tempfile.TemporaryDirectory behavior by letting user provide his wished
