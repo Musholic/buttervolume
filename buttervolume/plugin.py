@@ -338,11 +338,9 @@ def volume_create(req):
                 raise ValidationError(f"Invalid schedule format: {schedule_opt}. Expected 'action timer'")
             action, timer = schedule_opt_parts
             schedule(name, timer, action)
-
-    # If there is a snapshot sync schedule, we should immediately apply it to avoid data loss
-    snapshot_sync_schedule = get_schedule(name, "snapshot_sync")
-    if snapshot_sync_schedule:
-        snapshot_sync(name, snapshot_sync_schedule, req.get("Test", False))
+            # The snapshot_sync schedule should be paused when the volume is not mounted to avoid data loss
+            if action.startswith("snapshot_sync"):
+                schedule(name, "pause", action)
 
     return {"Err": ""}
 
@@ -422,10 +420,14 @@ def snapshot_sync(name, schedule, test=False):
 def volume_mount(req):
     name = req["Name"]
     validate_volume_name(name)
+
     # Check if there is a snapshot_sync schedule for this volume
-    schedule = get_schedule(name, "snapshot_sync")
-    if schedule:
-        snapshot_sync(name, schedule, req.get("Test", False))
+    ss_schedule = get_schedule(name, "snapshot_sync")
+    if ss_schedule:
+        snapshot_sync(name, ss_schedule, req.get("Test", False))
+        # This schedule must be resumed when the volume is mounted
+        schedule(name, "resume", ss_schedule["Action"])
+
     path = volumepath(name)
     return {"Mountpoint": path, "Err": ""}
 
@@ -446,11 +448,13 @@ def volume_unmount(req):
     name = req["Name"]
 
     # Check if there is a snapshot_sync schedule for this volume
-    schedule = get_schedule(name, "snapshot_sync")
-    if schedule:
+    ss_schedule = get_schedule(name, "snapshot_sync")
+    if ss_schedule:
+        # This schedule must be paused when the volume is unmounted
+        schedule(name, "pause", ss_schedule["Action"])
         # We have to send a new snapshot before unmount
         snapshot_name = snapshot(name)
-        remote_host = schedule["Action"].split(":")[1]
+        remote_host = ss_schedule["Action"].split(":")[1]
         snapshot_send(snapshot_name, remote_host, req.get("Test", False))
 
     return {"Err": ""}
@@ -785,7 +789,7 @@ def get_schedules():
 def get_schedule(name, action):
     schedules = get_schedules()
     for schedule in schedules:
-        if schedule["Name"] == name and schedule["Action"].startswith(action) and schedule["Active"]:
+        if schedule["Name"] == name and schedule["Action"].startswith(action):
             return schedule
     return None
 

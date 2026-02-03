@@ -974,6 +974,11 @@ class TestCase(unittest.TestCase):
         )
         self.assertEqual(resp, {"Err": ""})
 
+        # Check that the snapshot_sync schedule is paused after volume creation
+        with open(SCHEDULE) as f:
+            lines = f.readlines()
+            self.assertEqual(lines[0], f"{name},snapshot_sync:localhost,1,False\n")
+
         # snapshot (old)
         with open(join(path, "foobar"), "w") as f:
             f.write("old foobar1")
@@ -1017,6 +1022,11 @@ class TestCase(unittest.TestCase):
         backup_path = join(SNAPSHOTS_PATH, backup_snapshot)
         with open(join(backup_path, "foobar")) as x:
             self.assertEqual(x.read(), "backuped foobar3")
+
+        # Check that the snapshot_sync schedule is active after mount
+        with open(SCHEDULE) as f:
+            lines = f.readlines()
+            self.assertEqual(lines[0], f"{name},snapshot_sync:localhost,1,True\n")
 
 
     def test_snapshot_sync_at_mount_with_no_snapshot(self):
@@ -1101,6 +1111,11 @@ class TestCase(unittest.TestCase):
 
         # check we have one remote snapshot
         self.assertEqual( 1, len(os.listdir(TEST_REMOTE_PATH)))
+
+        # Check that the snapshot_sync schedule is paused after unmount
+        with open(SCHEDULE) as f:
+            lines = f.readlines()
+            self.assertEqual(lines[0], f"{name},snapshot_sync:localhost,1,False\n")
 
 
     def test_snapshot_sync_restore_after_removal(self):
