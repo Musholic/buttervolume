@@ -1050,6 +1050,16 @@ def compute_purges(snapshots, pattern, now):
     # Example : [30, 70, 90, 150, 210, ..., 4000]
     snapshots_age = []
     valid_snapshots = []
+
+    # First exclude snaphosts which are needed to track sent snapshots
+    tracking_snapshots = set()
+    for s in snapshots:
+        if len(s.split("@")) == 3:
+            tracking_snapshots.add(s)
+            tracking_snapshots.add(s.rsplit("@", 1)[0])
+
+    snapshots = [s for s in snapshots if s not in tracking_snapshots]
+
     for s in snapshots:
         try:
             snapshots_age.append(

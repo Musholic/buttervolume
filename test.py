@@ -773,6 +773,48 @@ class TestCase(unittest.TestCase):
         cleanup_snapshots()
         self.app.post("/VolumeDriver.Remove", json.dumps({"Name": name}))
 
+
+    def test_purge_keep_tracking_snapshots(self):
+        """Test that purge keeps tracking snapshots"""
+        name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
+        path = join(VOLUMES_PATH, name)
+        self.create_a_volume_with_a_file(name)
+        # Create an old snapshot
+        timestamp = (datetime.now() - timedelta(days=1)).strftime(DTFORMAT)
+        snapshot = f"{name}@{timestamp}"
+        run(
+            f"btrfs subvolume snapshot -r {path} {join(SNAPSHOTS_PATH, snapshot)}",
+            shell=True,
+        )
+        # Send the old snapshot, it will create a tracking snapshot
+        self.app.post(
+            "/VolumeDriver.Snapshot.Send",
+            json.dumps({"Name": snapshot, "Host": "localhost", "Test": True}),
+        )
+        # Create a recent snapshot
+        timestamp = datetime.now().strftime(DTFORMAT)
+        recent_snapshot = f"{name}@{timestamp}"
+        run(
+            f"btrfs subvolume snapshot -r {path} {join(SNAPSHOTS_PATH, recent_snapshot)}",
+            shell=True,
+        )
+
+        # run the purge with a simple save pattern (2h only)
+        nb_snaps = len(os.listdir(SNAPSHOTS_PATH))
+        resp = self.app.post(
+            "/VolumeDriver.Snapshots.Purge",
+            json.dumps({"Name": name, "Pattern": "2h"}),
+        )
+        result = jsonloads(resp.body)
+        print(f"DEBUG: Purge result: {result}")
+        print(
+            f"DEBUG: Before purge: {nb_snaps} snapshots, After purge: {len(os.listdir(SNAPSHOTS_PATH))} snapshots"
+        )
+        self.assertEqual(result, {"Err": ""})
+        # check we still have our three snapshots
+        self.assertEqual(len(os.listdir(SNAPSHOTS_PATH)), 3)
+
+
     def test_compute_purge(self):
         now = datetime.now()
         snapshots = [
@@ -1170,7 +1212,6 @@ class TestCase(unittest.TestCase):
         # Check the content of foobar
         with open(join(path, "foobar")) as x:
             self.assertEqual(x.read(), "correct foobar1")
-
 
 class TemporaryDirectory(tempfile.TemporaryDirectory):
     """Create and return a temporary directory. This change the
