@@ -365,6 +365,35 @@ class TestCase(unittest.TestCase):
             json.dumps({"Name": snapshot2, "Host": "localhost", "Test": True})).body.decode())
         self.assertEqual(resp, {"Err": "Snapshot already exists on remote"})
 
+
+    def test_send_missing_tracking_snapshot(self):
+        """Check we can safely abort a send when the remote already has the snapshot but we missed a tracking one"""
+        # First send the snapshot as usual
+        # create a volume with a file
+        name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
+        path = join(VOLUMES_PATH, name)
+        self.create_a_volume_with_a_file(name)
+        # snapshot
+        resp = self.app.post("/VolumeDriver.Snapshot", json.dumps({"Name": name}))
+        snapshot = json.loads(resp.body.decode())["Snapshot"]
+        # send the snapshot (to the same host with another name)
+        self.app.post(
+            "/VolumeDriver.Snapshot.Send",
+            json.dumps({"Name": snapshot, "Host": "localhost", "Test": True}),
+        )
+
+        # Now remove the tracking snapshot and try again
+        self.app.post("/VolumeDriver.Snapshot.Remove", json.dumps({"Name": snapshot + "@localhost"}))
+        resp = json.loads(self.app.post(
+            "/VolumeDriver.Snapshot.Send",
+            json.dumps({"Name": snapshot, "Host": "localhost", "Test": True})).body.decode())
+        self.assertEqual(resp, {"Err": "Snapshot already exists on remote"})
+        # check we have two local snapshots (with the tracking one)
+        self.assertEqual( 2, len(os.listdir(SNAPSHOTS_PATH)))
+        # check we have one remote snapshot
+        self.assertEqual( 1, len(os.listdir(TEST_REMOTE_PATH)))
+
+
     def test_snapshot(self):
         """Check we can snapshot a volume"""
         # create a volume with a file

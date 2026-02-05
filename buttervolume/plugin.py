@@ -599,13 +599,22 @@ def snapshot_send_req(req):
 
 def snapshot_send(snapshot_name, remote_host, test=False):
     # Validate inputs
-    validate_volume_name(snapshot_name.split("@")[0])  # Validate base volume name
+    volume_name = snapshot_name.split("@")[0]
+    validate_volume_name(volume_name)  # Validate base volume name
     validate_hostname(remote_host)
 
     snapshot_path = join(SNAPSHOTS_PATH, snapshot_name)
     remote_snapshots = SNAPSHOTS_PATH if not test else TEST_REMOTE_PATH
 
     parent_path, sent_snapshots = get_parent_path(snapshot_name, remote_host)
+    if parent_path != snapshot_path:
+        # Check if the remote host already has the snapshot
+        remote_snapshot_names = get_remote_snapshots(volume_name, remote_host, remote_snapshots)
+        if snapshot_name in remote_snapshot_names:
+            # The remote host already has the snapshot but we lack the tracking snapshot
+            parent_path = snapshot_path
+            manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots)
+
     if parent_path == snapshot_path:
         raise ReplicationError("Snapshot already exists on remote")
 
