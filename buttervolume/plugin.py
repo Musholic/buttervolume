@@ -403,11 +403,19 @@ def snapshot_sync(name, schedule, test=False):
         # Retrieve the remote snapshot and restore it
         remote_snapshots = SNAPSHOTS_PATH if not test else TEST_REMOTE_PATH
         remote_snapshot_path = join(remote_snapshots, last_remote_snapshot)
-        parent_path, sent_snapshots = get_parent_path(last_remote_snapshot, remote_host)
-        log.info("Receiving snapshot %s from %s", remote_snapshot_path, remote_host)
-        run_btrfs_receive_remote_send(remote_host, remote_snapshot_path, parent_path)
-
+        parent_snapshot, sent_snapshots = get_parent_snapshot(last_remote_snapshot, remote_host)
+        parent_path = join(remote_snapshots, parent_snapshot) if parent_snapshot else None
         snapshot_path = join(SNAPSHOTS_PATH, last_remote_snapshot)
+        log.info("Receiving snapshot %s from %s with parent %s", remote_snapshot_path, remote_host, parent_path)
+        try:
+            run_btrfs_receive_remote_send(remote_host, remote_snapshot_path, parent_path)
+        except ReplicationError as e:
+            log.warning(
+                "Failed using parent %s. Receiving full snapshot %s: %s", parent_path, remote_snapshot_path, str(e)
+            )
+            btrfs.Subvolume(snapshot_path).delete(check=False)
+            run_btrfs_receive_remote_send(remote_host, remote_snapshot_path)
+
         manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots)
 
         # Restore the remote snapshot
@@ -569,7 +577,7 @@ def driver_cap(_):
     return {"Capabilities": {"Scope": "local"}}
 
 
-def get_parent_path(snapshot_name, remote_host):
+def get_parent_snapshot(snapshot_name, remote_host):
     sent_snapshots = sorted([
         s
         for s in os.listdir(SNAPSHOTS_PATH)
@@ -580,7 +588,7 @@ def get_parent_path(snapshot_name, remote_host):
     latest = sent_snapshots[-1] if len(sent_snapshots) > 0 else None
     if latest and len(latest.rsplit("@")) == 3:
         latest = latest.rsplit("@", 1)[0]
-    return join(SNAPSHOTS_PATH, latest) if latest else None, sent_snapshots
+    return latest, sent_snapshots
 
 
 @route("/VolumeDriver.Snapshot.Send", ["POST"])
@@ -606,7 +614,8 @@ def snapshot_send(snapshot_name, remote_host, test=False):
     snapshot_path = join(SNAPSHOTS_PATH, snapshot_name)
     remote_snapshots = SNAPSHOTS_PATH if not test else TEST_REMOTE_PATH
 
-    parent_path, sent_snapshots = get_parent_path(snapshot_name, remote_host)
+    parent_snapshot, sent_snapshots = get_parent_snapshot(snapshot_name, remote_host)
+    parent_path = join(SNAPSHOTS_PATH, parent_snapshot) if parent_snapshot else None
     if parent_path != snapshot_path:
         # Check if the remote host already has the snapshot
         remote_snapshot_names = get_remote_snapshots(volume_name, remote_host, remote_snapshots)

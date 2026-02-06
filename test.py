@@ -1162,6 +1162,50 @@ class TestCase(unittest.TestCase):
             self.assertEqual(x.read(), "correct foobar1")
 
 
+    def test_snapshot_sync_at_mount_with_missing_remote_parent_snapshot(self):
+        """Check that we don't fail when the parent snapshot is not available on the remote"""
+        # create a volume with snapshot_sync schedule
+        name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
+        path = join(VOLUMES_PATH, name)
+        self.app.post(
+            "/VolumeDriver.Create", json.dumps({"Name": name, "Opts": {"schedules": "snapshot_sync:localhost 1"}})
+        )
+
+        # Create two snapshots and send each of them in reverse order (so that we track the oldest snapshot)
+        # Then remove the more recent one locally and the oldest one remotely
+        with open(join(path, "foobar"), "w") as f:
+            f.write("old foobar1")
+        resp = self.app.post("/VolumeDriver.Snapshot", json.dumps({"Name": name}))
+        snapshot_old = json.loads(resp.body.decode())["Snapshot"]
+        with open(join(path, "foobar"), "w") as f:
+            f.write("correct foobar2")
+        resp = self.app.post("/VolumeDriver.Snapshot", json.dumps({"Name": name}))
+        snapshot = json.loads(resp.body.decode())["Snapshot"]
+
+        self.app.post(
+            "/VolumeDriver.Snapshot.Send",
+            json.dumps({"Name": snapshot, "Host": "localhost", "Test": True}),
+        )
+        self.app.post(
+            "/VolumeDriver.Snapshot.Send",
+            json.dumps({"Name": snapshot_old, "Host": "localhost", "Test": True}),
+        )
+        btrfs.Subvolume(join(SNAPSHOTS_PATH, snapshot)).delete()
+        btrfs.Subvolume(join(TEST_REMOTE_PATH, snapshot_old)).delete()
+
+        # Modify the file then mount
+        with open(join(path, "foobar"), "w") as f:
+            f.write("backuped foobar3")
+        resp = jsonloads(
+            self.app.post("/VolumeDriver.Mount", json.dumps({"Name": name, "Test": True})).body
+        )
+
+        # Should not fail and the file should be restored
+        self.assertEqual(resp["Err"], "")
+        with open(join(path, "foobar")) as x:
+            self.assertEqual(x.read(), "correct foobar2")
+
+
     def test_snapshot_sync_at_unmount(self):
         """Check that we automatically send a snapshot at unmount when snapshot_sync is active"""
         # create a volume with snapshot_sync schedule
