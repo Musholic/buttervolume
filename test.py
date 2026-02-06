@@ -1233,6 +1233,31 @@ class TestCase(unittest.TestCase):
             self.assertEqual(lines[0], f"{name},snapshot_sync:localhost,1,False\n")
 
 
+    def test_snapshot_sync_on_unmount_snapshot_already_on_remote(self):
+        """Check that we don't fail when snapshot_sync is active and the snapshot is already on the remote"""
+        # create a volume with snapshot_sync schedule
+        name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
+        path = join(VOLUMES_PATH, name)
+        self.app.post("/VolumeDriver.Create", json.dumps({"Name": name, "Opts": {"schedules": "snapshot_sync:localhost 1"}}))
+
+        self.app.post("/VolumeDriver.Mount", json.dumps({"Name": name, "Test": True}))
+
+        with open(join(path, "foobar"), "w") as f:
+            f.write("foobar1")
+
+        # Send snapshot to remote
+        resp = self.app.post("/VolumeDriver.Snapshot", json.dumps({"Name": name}))
+        snapshot = json.loads(resp.body.decode())["Snapshot"]
+        self.app.post(
+            "/VolumeDriver.Snapshot.Send",
+            json.dumps({"Name": snapshot, "Host": "localhost", "Test": True}),
+        )
+
+        # Unmount volume
+        resp = jsonloads(self.app.post("/VolumeDriver.Unmount", json.dumps({"Name": name, "Test": True})).body)
+        self.assertEqual(resp, {"Err": ""})
+
+
     def test_snapshot_sync_restore_after_removal(self):
         """
         Test that we can recover the last local snapshot after volume removal

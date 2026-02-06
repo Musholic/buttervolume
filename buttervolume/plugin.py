@@ -1,4 +1,5 @@
 import configparser
+import contextlib
 import csv
 import json
 import logging
@@ -48,6 +49,12 @@ class ReplicationError(ButtervolumeError):
     """Raised when replication fails"""
 
     pass
+
+
+class SnapshotAlreadyOnRemoteError(ReplicationError):
+    """Raised when a snapshot already exists on the remote"""
+    def __init__(self):
+        super().__init__("Snapshot already exists on remote")
 
 
 config = configparser.ConfigParser()
@@ -452,6 +459,7 @@ def volume_path(req):
 
 @route("/VolumeDriver.Unmount", ["POST"])
 @add_debug_log
+@safe_handler
 def volume_unmount(req):
     name = req["Name"]
 
@@ -463,7 +471,9 @@ def volume_unmount(req):
         # We have to send a new snapshot before unmount
         snapshot_name = snapshot(name)
         remote_host = ss_schedule["Action"].split(":")[1]
-        snapshot_send(snapshot_name, remote_host, req.get("Test", False))
+
+        with contextlib.suppress(SnapshotAlreadyOnRemoteError):
+            snapshot_send(snapshot_name, remote_host, req.get("Test", False))
 
     return {"Err": ""}
 
@@ -625,7 +635,7 @@ def snapshot_send(snapshot_name, remote_host, test=False):
             manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots)
 
     if parent_path == snapshot_path:
-        raise ReplicationError("Snapshot already exists on remote")
+        raise SnapshotAlreadyOnRemoteError()
 
     port = os.getenv("SSH_PORT", "1122")
 
