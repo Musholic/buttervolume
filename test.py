@@ -1162,6 +1162,39 @@ class TestCase(unittest.TestCase):
             self.assertEqual(x.read(), "correct foobar1")
 
 
+    def test_snapshot_sync_at_mount_with_newer_local_snapshot(self):
+        """
+        Test that we restore newer snapshots that were directly received from another host before mount
+        This basically translates in that we should restore the more recent snapshot if there is any difference with the volume we already have
+        """
+
+        # create a volume with snapshot_sync schedule
+        name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
+        path = join(VOLUMES_PATH, name)
+        resp = jsonloads(
+            self.app.post(
+                "/VolumeDriver.Create", json.dumps({"Name": name, "Opts": {"schedules": "snapshot_sync:localhost 1"}})
+            ).body
+        )
+        self.assertEqual(resp, {"Err": ""})
+
+        # snapshot
+        with open(join(path, "foobar"), "w") as f:
+            f.write("correct foobar1")
+        self.app.post("/VolumeDriver.Snapshot", json.dumps({"Name": name}))
+
+        # modify the file
+        with open(join(path, "foobar"), "w") as f:
+            f.write("backuped foobar2")
+
+        # mount
+        self.app.post("/VolumeDriver.Mount", json.dumps({"Name": name, "Test": True}))
+
+        # Should have restored the snapshot automatically
+        with open(join(path, "foobar")) as x:
+            self.assertEqual(x.read(), "correct foobar1")
+
+
     def test_snapshot_sync_at_mount_with_missing_remote_parent_snapshot(self):
         """Check that we don't fail when the parent snapshot is not available on the remote"""
         # create a volume with snapshot_sync schedule

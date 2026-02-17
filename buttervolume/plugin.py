@@ -400,11 +400,7 @@ def snapshot_sync(name, schedule, test=False):
     except SnapshotNotFoundError:
         last_local_snapshot = None
 
-    # Ensure we at least restore the last local snapshot if the volume is still newly created
     volpath = join(VOLUMES_PATH, name)
-    if last_local_snapshot and btrfs.Subvolume(volpath).is_new():
-        snapshot_restore(last_local_snapshot)
-
     # Check if remote snapshot exists and is newer than local
     if last_remote_snapshot and (not last_local_snapshot or last_remote_snapshot > last_local_snapshot):
         # Retrieve the remote snapshot and restore it
@@ -427,6 +423,11 @@ def snapshot_sync(name, schedule, test=False):
 
         # Restore the remote snapshot
         snapshot_restore(last_remote_snapshot)
+    elif last_local_snapshot and not btrfs.Subvolume(volpath).is_same_as(last_local_snapshot):
+        # We should restore the last local snapshot if the volume is different
+        # (this normally happens if we recreated the volume or if we received a snapshot from a different host)
+        snapshot_restore(last_local_snapshot)
+
 
 
 @route("/VolumeDriver.Mount", ["POST"])
