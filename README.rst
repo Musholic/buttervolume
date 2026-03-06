@@ -1,7 +1,4 @@
-.. image:: https://travis-ci.org/ccomb/buttervolume.svg?branch=master
-   :target: https://travis-ci.org/ccomb/buttervolume
-   :alt: Travis state
-
+ WIP fork of https://github.com/ccomb/buttervolume to add automatic snapshot_sync at mount/unmout (c.f. https://github.com/ccomb/buttervolume/pull/69)
 
 BTRFS Volume plugin for Docker
 ==============================
@@ -71,10 +68,10 @@ Use the ``buttervolume init`` command to easily set up the BTRFS environment::
 
     # Default setup - checks /var/lib/buttervolume is on BTRFS and creates required directories
     sudo buttervolume init
-    
+
     # Custom BTRFS path - uses existing BTRFS filesystem at specified path
     sudo buttervolume init --path /custom/btrfs/path
-    
+
     # Image file - creates a new BTRFS image file
     sudo buttervolume init --file /var/lib/docker/btrfs.img --size 20G
 
@@ -237,10 +234,10 @@ You can efficiently move or snapshot existing volumes::
 
     # Stop containers using the volumes first
     docker stop <container-using-volume>
-    
+
     # Method 1: Move the volume (fastest)
     sudo mv /var/lib/docker/volumes/<volume-name>/_data /var/lib/buttervolume/volumes/<volume-name>
-    
+
     # Method 2: Create BTRFS snapshot (preserves original)
     sudo btrfs subvolume snapshot /var/lib/docker/volumes/<volume-name>/_data /var/lib/buttervolume/volumes/<volume-name>
 
@@ -250,11 +247,11 @@ You need to copy the data::
 
     # Stop containers using the volumes first
     docker stop <container-using-volume>
-    
+
     # Create buttervolume and copy data
     docker volume create -d ccomb/buttervolume:latest <volume-name>
     sudo cp -ar /var/lib/docker/volumes/<volume-name>/_data/* /var/lib/buttervolume/volumes/<volume-name>/
-    
+
     # Remove old volume after verifying data integrity
     docker volume rm <volume-name>
 
@@ -266,7 +263,7 @@ After migration, update your containers to use the new buttervolume driver::
     volumes:
       my-data:
         driver: ccomb/buttervolume:latest
-    
+
     # Or with docker run
     docker run -v my-data:/data --volume-driver=ccomb/buttervolume:latest myimage
 
@@ -276,7 +273,7 @@ Test that your migrated volumes work correctly before removing the originals::
 
     # Check volume exists
     docker volume ls -f driver=ccomb/buttervolume:latest
-    
+
     # Test with a temporary container
     docker run --rm -v <volume-name>:/test --volume-driver=ccomb/buttervolume:latest alpine ls -la /test
 
@@ -515,12 +512,12 @@ the remote host.
 
 ``<host>`` is the hostname or IP address of the remote host. The snapshot is
 currently sent using BTRFS send/receive through ssh, with an ssh server direcly
-included in the plugin. 
+included in the plugin.
 
 **SSH Configuration Requirements:**
 
 - SSH keys and configuration must be in ``/var/lib/buttervolume/ssh/`` (NOT in ``~/.ssh/``)
-- SSH keys must be present and authorized on target hosts  
+- SSH keys must be present and authorized on target hosts
 - Enable ``StrictHostKeyChecking no`` in ``/var/lib/buttervolume/ssh/config``
 - **Important**: Restart Docker daemons after any SSH configuration changes
 
@@ -828,4 +825,3 @@ Thanks to:
 - Christoph Rist
 - Philip Nagler-Frank
 - Yoann MOUGNIBAS
-
