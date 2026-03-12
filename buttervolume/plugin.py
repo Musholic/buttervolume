@@ -53,6 +53,7 @@ class ReplicationError(ButtervolumeError):
 
 class SnapshotAlreadyOnRemoteError(ReplicationError):
     """Raised when a snapshot already exists on the remote"""
+
     def __init__(self):
         super().__init__("Snapshot already exists on remote")
 
@@ -269,7 +270,10 @@ def run_btrfs_receive_remote_send(remote_host, remote_snapshot_path, parent_path
     # Execute ssh send | local receive using subprocess
     send_proc = subprocess.Popen(ssh_send_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     receive_proc = subprocess.Popen(
-        receive_cmd, stdin=send_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        receive_cmd,
+        stdin=send_proc.stdout,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
 
     send_proc.stdout.close()  # Allow send_proc to receive a SIGPIPE if receive_proc exits
@@ -342,7 +346,9 @@ def volume_create(req):
         for schedule_opt in schedules_opt.split(","):
             schedule_opt_parts = schedule_opt.strip().split(" ")
             if len(schedule_opt_parts) != 2:
-                raise ValidationError(f"Invalid schedule format: {schedule_opt}. Expected 'action timer'")
+                raise ValidationError(
+                    f"Invalid schedule format: {schedule_opt}. Expected 'action timer'"
+                )
             action, timer = schedule_opt_parts
             schedule(name, timer, action)
             # The snapshot_sync schedule should be paused when the volume is not mounted to avoid data loss
@@ -402,19 +408,29 @@ def snapshot_sync(name, schedule, test=False):
 
     volpath = join(VOLUMES_PATH, name)
     # Check if remote snapshot exists and is newer than local
-    if last_remote_snapshot and (not last_local_snapshot or last_remote_snapshot > last_local_snapshot):
+    if last_remote_snapshot and (
+        not last_local_snapshot or last_remote_snapshot > last_local_snapshot
+    ):
         # Retrieve the remote snapshot and restore it
         remote_snapshots = SNAPSHOTS_PATH if not test else TEST_REMOTE_PATH
         remote_snapshot_path = join(remote_snapshots, last_remote_snapshot)
         parent_snapshot, sent_snapshots = get_parent_snapshot(last_remote_snapshot, remote_host)
         parent_path = join(remote_snapshots, parent_snapshot) if parent_snapshot else None
         snapshot_path = join(SNAPSHOTS_PATH, last_remote_snapshot)
-        log.info("Receiving snapshot %s from %s with parent %s", remote_snapshot_path, remote_host, parent_path)
+        log.info(
+            "Receiving snapshot %s from %s with parent %s",
+            remote_snapshot_path,
+            remote_host,
+            parent_path,
+        )
         try:
             run_btrfs_receive_remote_send(remote_host, remote_snapshot_path, parent_path)
         except ReplicationError as e:
             log.warning(
-                "Failed using parent %s. Receiving full snapshot %s: %s", parent_path, remote_snapshot_path, str(e)
+                "Failed using parent %s. Receiving full snapshot %s: %s",
+                parent_path,
+                remote_snapshot_path,
+                str(e),
             )
             btrfs.Subvolume(snapshot_path).delete(check=False)
             run_btrfs_receive_remote_send(remote_host, remote_snapshot_path)
@@ -427,7 +443,6 @@ def snapshot_sync(name, schedule, test=False):
         # We should restore the last local snapshot if the volume is different
         # (this normally happens if we recreated the volume or if we received a snapshot from a different host)
         snapshot_restore(last_local_snapshot)
-
 
 
 @route("/VolumeDriver.Mount", ["POST"])
@@ -589,13 +604,15 @@ def driver_cap(_):
 
 
 def get_parent_snapshot(snapshot_name, remote_host):
-    sent_snapshots = sorted([
-        s
-        for s in os.listdir(SNAPSHOTS_PATH)
-        if len(s.split("@")) == 3
-        and s.split("@")[0] == snapshot_name.split("@")[0]
-        and s.split("@")[2] == remote_host
-    ])
+    sent_snapshots = sorted(
+        [
+            s
+            for s in os.listdir(SNAPSHOTS_PATH)
+            if len(s.split("@")) == 3
+            and s.split("@")[0] == snapshot_name.split("@")[0]
+            and s.split("@")[2] == remote_host
+        ]
+    )
     latest = sent_snapshots[-1] if len(sent_snapshots) > 0 else None
     if latest and len(latest.rsplit("@")) == 3:
         latest = latest.rsplit("@", 1)[0]
@@ -645,7 +662,10 @@ def snapshot_send(snapshot_name, remote_host, test=False):
         run_btrfs_send_receive(snapshot_path, remote_host, remote_snapshots, parent_path, port)
     except ReplicationError as e:
         log.warning(
-            "Failed using parent %s. Sending full snapshot %s: %s", parent_path, snapshot_path, str(e)
+            "Failed using parent %s. Sending full snapshot %s: %s",
+            parent_path,
+            snapshot_path,
+            str(e),
         )
 
         rm_cmd = [
