@@ -46,7 +46,6 @@ RUN apt-get update \
 
 # Copy the built application from builder stage
 COPY --from=builder /app /usr/local/lib/python3.11/site-packages/
-ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
 
 # add tini to avoid sshd zombie processes
 ENV TINI_VERSION=v0.19.0

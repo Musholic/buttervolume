@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Set PATH and PYTHONPATH since ENV directives from Dockerfile are lost
+# when creating the plugin via 'docker export'
+export PYTHONPATH=/usr/local/lib/python3.11/site-packages
+export PATH=/usr/local/lib/python3.11/site-packages/bin:$PATH
+
 SSH_PORT=${SSH_PORT:-1122}
 
 # Ensure required directories exist in the mounted volume
