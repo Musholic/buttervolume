@@ -1,14 +1,18 @@
 {
-  "name": "Python 3",
-  "image": "mcr.microsoft.com/devcontainers/python:3-3-trixie",
-  "features": {
-    "ghcr.io/devcontainers/features/python:1": {},
-  },
-  "remoteUser": "root",
-  "runArgs": ["--privileged"],
-  "containerEnv": {
-    "SSH_PORT": "2222",
-  },
-  "postCreateCommand": "./.devcontainer/post-create.sh",
-  "postStartCommand": "./.devcontainer/post-start.sh",
+    "name": "Python 3",
+    "image": "mcr.microsoft.com/devcontainers/python:3-3-trixie",
+    "features": {
+        "ghcr.io/devcontainers/features/python:1": {}
+    },
+    "remoteUser": "root",
+    "privileged": true,
+    "runArgs": [],
+    "containerEnv": {
+        "SSH_PORT": "2222"
+    },
+    "remoteEnv": {
+        "SSH_PORT": "2222"
+    },
+    "postCreateCommand": "./.devcontainer/post-create.sh",
+    "postStartCommand": "./.devcontainer/post-start.sh"
 }

@@ -12,6 +12,6 @@ ssh-keygen -f /root/.ssh/id_rsa -N ""
 cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
 ssh-keyscan -p $SSH_PORT localhost >> /root/.ssh/known_hosts
-mkdir -p /var/lib/buttervolume/received
+mkdir -p /var/lib/buttervolume
 
 git config --global --add safe.directory /workspaces/buttervolume
