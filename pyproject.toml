@@ -13,12 +13,12 @@ authors = [
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
-    "Intended Audience :: System Administrators", 
+    "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9", 
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Topic :: System :: Systems Administration",
@@ -36,9 +36,10 @@ test = [
     "webtest",
 ]
 dev = [
-    "pytest", 
+    "pytest",
     "webtest",
     "ruff",
+    "debugpy"
 ]
 
 [project.scripts]
@@ -59,5 +60,7 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["."]
 python_files = ["test*.py"]
-python_classes = ["Test*"] 
+python_classes = ["Test*"]
 python_functions = ["test_*"]
+log_cli = true
+log_cli_level = "debug"

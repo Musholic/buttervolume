@@ -1,7 +1,6 @@
 #!/bin/sh
 apt-get update
 apt-get install -y btrfs-progs openssh-server openssh-client e2fsprogs
-pip install uv
 uv sync --locked --extra dev
 
 sed -r "s/[#]{0,1}Port [0-9]{2,5}/Port $SSH_PORT/g" /etc/ssh/sshd_config -i
