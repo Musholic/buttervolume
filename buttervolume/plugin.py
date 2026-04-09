@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import socket
 import subprocess
 from datetime import datetime
 from os.path import basename, dirname, join
@@ -368,6 +369,10 @@ def volumepath(name):
 
 
 def get_remote_snapshots(volume_name, remote_host, remote_snapshots):
+    return run_ssh_command(remote_host, f"cd {remote_snapshots}; shopt -s nullglob; ls -d {volume_name}@*").split("\n")
+
+
+def run_ssh_command(remote_host, command):
     port = os.getenv("SSH_PORT", "1122")
     ssh_cmd = [
         "ssh",
@@ -376,17 +381,12 @@ def get_remote_snapshots(volume_name, remote_host, remote_snapshots):
         "-o",
         "StrictHostKeyChecking=no",
         remote_host,
-        f"cd {remote_snapshots}; ls -d {volume_name}@*",
+        command,
     ]
-    snapshots = (
-        subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        .stdout.read()
-        .decode()
-        .strip()
-        .split("\n")
-    )
-
-    return snapshots
+    result = subprocess.run(ssh_cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise ReplicationError(f"SSH command failed: {result.stderr.strip()}")
+    return result.stdout.strip()
 
 
 def get_last_remote_snapshot(volume_name, remote_host, test=False):
@@ -443,7 +443,7 @@ def snapshot_sync(name, schedule, test=False):
 
             run_btrfs_receive_remote_send(remote_host, remote_snapshot_path)
 
-        manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots)
+        manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots, remote_snapshots)
 
         # Restore the remote snapshot
         snapshot_restore(last_remote_snapshot)
@@ -657,7 +657,7 @@ def snapshot_send(snapshot_name, remote_host, test=False):
         if snapshot_name in remote_snapshot_names:
             # The remote host already has the snapshot but we lack the tracking snapshot
             parent_path = snapshot_path
-            manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots)
+            manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots, remote_snapshots)
 
     if parent_path == snapshot_path:
         raise SnapshotAlreadyOnRemoteError()
@@ -693,12 +693,22 @@ def snapshot_send(snapshot_name, remote_host, test=False):
         # Send without parent
         run_btrfs_send_receive(snapshot_path, remote_host, remote_snapshots, None, port)
 
-    manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots)
+    manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots, remote_snapshots)
 
 
-def manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots):
+def manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots, remote_snapshots):
+    snapshot_name = basename(snapshot_path)
+    hostname = socket.gethostname()
+    volume_name = snapshot_name.split("@")[0]
+
     # Create local tracking snapshot
     btrfs.Subvolume(snapshot_path).snapshot(f"{snapshot_path}@{remote_host}", readonly=True)
+
+    # Remove any existing remote tracking snapshot for this volume
+    run_ssh_command(remote_host, f"cd {remote_snapshots}; test ! -d {volume_name}@*@{hostname} || btrfs subvolume delete {volume_name}@*@{hostname}")
+
+    # Create a remote tracking snapshot
+    run_ssh_command(remote_host, f"cd {remote_snapshots}; btrfs subvolume snapshot -r {snapshot_name} {snapshot_name}@{socket.gethostname()}")
 
     # Clean up old tracking snapshots
     for old_snapshot in sent_snapshots:

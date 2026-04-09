@@ -397,8 +397,8 @@ class TestCase(unittest.TestCase):
         self.assertEqual(resp, {"Err": "Snapshot already exists on remote"})
         # check we have two local snapshots (with the tracking one)
         self.assertEqual(2, len(os.listdir(SNAPSHOTS_PATH)))
-        # check we have one remote snapshot
-        self.assertEqual(1, len(os.listdir(TEST_REMOTE_PATH)))
+        # check we have two remote snapshot (with the tracking one)
+        self.assertEqual(2, len(os.listdir(TEST_REMOTE_PATH)))
 
     def test_snapshot(self):
         """Check we can snapshot a volume"""
@@ -561,7 +561,7 @@ class TestCase(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            1,
+            2,
             len(
                 {
                     s
@@ -596,13 +596,13 @@ class TestCase(unittest.TestCase):
         runjobs(SCHEDULE, test=True, schedule_log=schedule_log)
         snapshots = os.listdir(SNAPSHOTS_PATH)
         self.assertEqual(2, len(snapshots))
-        self.assertEqual(1, len(os.listdir(TEST_REMOTE_PATH)))
+        self.assertEqual(2, len(os.listdir(TEST_REMOTE_PATH)))
 
         # Also check we don't create "empty" snapshots
         schedule_log = {"snapshot_sync:localhost": {name: datetime.now() - timedelta(days=1)}}
         runjobs(SCHEDULE, test=True, schedule_log=schedule_log)
         self.assertEqual(snapshots, os.listdir(SNAPSHOTS_PATH))
-        self.assertEqual(1, len(os.listdir(TEST_REMOTE_PATH)))
+        self.assertEqual(2, len(os.listdir(TEST_REMOTE_PATH)))
 
         # unschedule the last job
         self.app.post(
@@ -1169,9 +1169,9 @@ class TestCase(unittest.TestCase):
         with open(join(path, "foobar"), "w") as f:
             f.write("backuped foobar2")
 
-        # check we have no local snapshots and one remote one before mount
+        # check we have no local snapshots and one remote one before mount (with an additional tracking snapshot)
         self.assertEqual(0, len(os.listdir(SNAPSHOTS_PATH)))
-        self.assertEqual(1, len(os.listdir(TEST_REMOTE_PATH)))
+        self.assertEqual(2, len(os.listdir(TEST_REMOTE_PATH)))
 
         # mount
         resp = jsonloads(
@@ -1283,8 +1283,8 @@ class TestCase(unittest.TestCase):
         # check we have two local snapshots (with the tracking one)
         self.assertEqual(2, len(os.listdir(SNAPSHOTS_PATH)))
 
-        # check we have one remote snapshot
-        self.assertEqual(1, len(os.listdir(TEST_REMOTE_PATH)))
+        # check we have one remote snapshot (with an additional tracking snapshot)
+        self.assertEqual(2, len(os.listdir(TEST_REMOTE_PATH)))
 
         # Check that the snapshot_sync schedule is paused after unmount
         with open(SCHEDULE) as f:
