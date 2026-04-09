@@ -7,10 +7,8 @@
     "remoteUser": "root",
     "privileged": true,
     "containerEnv": {
-        "SSH_PORT": "2222"
-    },
-    "remoteEnv": {
-        "SSH_PORT": "2222"
+        "SSH_PORT": "2222",
+        "BUTTERVOLUME_ALLOW_FULL_SNAPSHOT_RETRY": "true"
     },
     "postCreateCommand": "./.devcontainer/post-create.sh",
     "postStartCommand": "./.devcontainer/post-start.sh"

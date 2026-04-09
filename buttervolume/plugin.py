@@ -103,6 +103,8 @@ if not os.path.exists(USOCKET):
 TIMER = int(getconfig(config, "TIMER", 60))
 DTFORMAT = getconfig(config, "DTFORMAT", "%Y-%m-%dT%H:%M:%S.%f")
 LOGLEVEL = getattr(logging, getconfig(config, "LOGLEVEL", "INFO"))
+# Prevent retry with full snapshot by default since it can causes high disk usage
+ALLOW_FULL_SNAPSHOT_RETRY = getconfig(config, "ALLOW_FULL_SNAPSHOT_RETRY", "false").lower() == "true"
 
 logging.basicConfig(level=LOGLEVEL)
 log = logging.getLogger()
@@ -426,6 +428,8 @@ def snapshot_sync(name, schedule, test=False):
         try:
             run_btrfs_receive_remote_send(remote_host, remote_snapshot_path, parent_path)
         except ReplicationError as e:
+            if not ALLOW_FULL_SNAPSHOT_RETRY:
+                raise
             log.warning(
                 "Failed using parent %s. Receiving full snapshot %s: %s",
                 parent_path,
@@ -660,6 +664,8 @@ def snapshot_send(snapshot_name, remote_host, test=False):
         log.info("Sending snapshot %s to %s", snapshot_path, remote_host)
         run_btrfs_send_receive(snapshot_path, remote_host, remote_snapshots, parent_path, port)
     except ReplicationError as e:
+        if not ALLOW_FULL_SNAPSHOT_RETRY:
+            raise
         log.warning(
             "Failed using parent %s. Sending full snapshot %s: %s",
             parent_path,
