@@ -391,7 +391,7 @@ def get_last_remote_snapshot(volume_name, remote_host, test=False):
     remote_snapshots = SNAPSHOTS_PATH if not test else TEST_REMOTE_PATH
 
     snapshots = get_remote_snapshots(volume_name, remote_host, remote_snapshots)
-    return get_last_snapshot(volume_name, snapshots)
+    return get_last_snapshot(snapshots)
 
 
 def snapshot_sync(name, schedule, test=False):
@@ -402,7 +402,7 @@ def snapshot_sync(name, schedule, test=False):
         last_remote_snapshot = None
 
     try:
-        last_local_snapshot = get_last_snapshot(name, os.listdir(SNAPSHOTS_PATH))
+        last_local_snapshot = get_last_snapshot(snapshot_list(name))
     except SnapshotNotFoundError:
         last_local_snapshot = None
 
@@ -607,9 +607,8 @@ def get_parent_snapshot(snapshot_name, remote_host):
     sent_snapshots = sorted(
         [
             s
-            for s in os.listdir(SNAPSHOTS_PATH)
+            for s in snapshot_list(snapshot_name.split("@")[0])
             if len(s.split("@")) == 3
-            and s.split("@")[0] == snapshot_name.split("@")[0]
             and s.split("@")[2] == remote_host
         ]
     )
@@ -719,7 +718,7 @@ def snapshot(name):
     btrfs.run_safe(["btrfs", "filesystem", "sync", VOLUMES_PATH], timeout=30)
 
     try:
-        last_snapshot = get_last_snapshot(name, os.listdir(SNAPSHOTS_PATH))
+        last_snapshot = get_last_snapshot(snapshot_list(name))
     except SnapshotNotFoundError:
         last_snapshot = None
 
@@ -741,9 +740,22 @@ def snapshot(name):
 
 @route("/VolumeDriver.Snapshot.List", ["GET"])
 @add_debug_log
-def snapshot_list(_):
-    snapshots = os.listdir(SNAPSHOTS_PATH)
+@safe_handler
+def snapshot_list_req(_):
+    snapshots = snapshot_list()
     return {"Err": "", "Snapshots": snapshots}
+
+
+def snapshot_list(name=""):
+    # Filter out snapshots that are not readonly since they may be in progress or corrupted
+    snapshots = [
+        s
+        for s in os.listdir(SNAPSHOTS_PATH)
+        if (not name or s.startswith(name + "@"))
+        and btrfs.Subvolume(join(SNAPSHOTS_PATH, s)).is_readonly()
+    ]
+    return snapshots
+
 
 
 @route("/VolumeDriver.Snapshot.List/<name>", ["GET"])
@@ -754,9 +766,7 @@ def snapshot_sublist(_, name=""):
     if name:
         validate_volume_name(name)
 
-    snapshots = os.listdir(SNAPSHOTS_PATH)
-    if name:
-        snapshots = [s for s in snapshots if s.startswith(name + "@")]
+    snapshots = snapshot_list(name)
     return {"Err": "", "Snapshots": snapshots}
 
 
@@ -861,12 +871,11 @@ def schedule_enable(_):
     return {"Err": ""}
 
 
-def get_last_snapshot(volume_name, snapshots: list[str]):
-    validate_volume_name(volume_name)
+def get_last_snapshot(snapshots: list[str]):
     # Filter out tracking snapshots
-    snapshots = [s for s in snapshots if s.startswith(volume_name + "@") and len(s.split("@")) == 2]
+    snapshots = [s for s in snapshots if len(s.split("@")) == 2]
     if not snapshots:
-        raise SnapshotNotFoundError(f"No snapshots found for volume '{volume_name}'")
+        raise SnapshotNotFoundError(f"No snapshots found")
     return sorted(snapshots)[-1]
 
 
@@ -888,8 +897,7 @@ def snapshot_restore_req(req):
 def snapshot_restore(snapshot_name, target_name=None):
     if "@" not in snapshot_name:
         # we're passing the name of the volume. Use the latest snapshot.
-        snapshots = os.listdir(SNAPSHOTS_PATH)
-        snapshot_name = get_last_snapshot(snapshot_name, snapshots)
+        snapshot_name = get_last_snapshot(snapshot_list(snapshot_name))
 
     snapshot_path = join(SNAPSHOTS_PATH, snapshot_name)
     if not os.path.exists(snapshot_path):
@@ -973,7 +981,7 @@ def snapshots_purge(req):
     pattern = parse_purge_pattern(req["Pattern"])
 
     # snapshots related to the volume, more recents first
-    snapshots = [s for s in os.listdir(SNAPSHOTS_PATH) if s.startswith(volume_name + "@")]
+    snapshots = snapshot_list(volume_name)
 
     # Compute which snapshots to purge
     now = datetime.now()

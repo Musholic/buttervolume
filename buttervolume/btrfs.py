@@ -147,6 +147,11 @@ class Subvolume:
         gen_at_creation = self.show()["Gen at creation"]
         gen_now = self.show()["Generation"]
         return gen_at_creation == gen_now
+    
+    def is_readonly(self):
+        """Check if this subvolume is read-only"""
+        raw = run_safe(["btrfs", "property", "get", self.path, "ro"], timeout=15)
+        return "ro=true" in raw
 
     @btrfs_operation(BtrfsSubvolumeError, "Failed to create snapshot", timeout=120)
     def snapshot(self, target, readonly=False):

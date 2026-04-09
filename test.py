@@ -681,16 +681,16 @@ class TestCase(unittest.TestCase):
         hours = [(datetime.now() - timedelta(hours=h)).strftime(DTFORMAT) for h in range(20)]
         for h in hours:
             run(
-                f"btrfs subvolume snapshot {path} {join(SNAPSHOTS_PATH, name)}@{h}",
+                f"btrfs subvolume snapshot -r {path} {join(SNAPSHOTS_PATH, name)}@{h}",
                 shell=True,
             )
         timestamp = datetime.now().strftime(DTFORMAT) + "@127.1.2.3"
         run(
-            f"btrfs subvolume snapshot {path} {join(SNAPSHOTS_PATH, name)}@{timestamp}",
+            f"btrfs subvolume snapshot -r {path} {join(SNAPSHOTS_PATH, name)}@{timestamp}",
             shell=True,
         )
         run(
-            "btrfs subvolume snapshot {} {}@{}".format(path, join(SNAPSHOTS_PATH, name), "invalid"),
+            "btrfs subvolume snapshot -r {} {}@{}".format(path, join(SNAPSHOTS_PATH, name), "invalid"),
             shell=True,
         )
 
