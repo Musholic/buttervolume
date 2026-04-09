@@ -428,15 +428,19 @@ def snapshot_sync(name, schedule, test=False):
         try:
             run_btrfs_receive_remote_send(remote_host, remote_snapshot_path, parent_path)
         except ReplicationError as e:
+            # First delete the failed snapshot
+            btrfs.Subvolume(snapshot_path).delete(check=False)
+
             if not ALLOW_FULL_SNAPSHOT_RETRY:
                 raise
+
             log.warning(
                 "Failed using parent %s. Receiving full snapshot %s: %s",
                 parent_path,
                 remote_snapshot_path,
                 str(e),
             )
-            btrfs.Subvolume(snapshot_path).delete(check=False)
+
             run_btrfs_receive_remote_send(remote_host, remote_snapshot_path)
 
         manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots)
@@ -664,15 +668,7 @@ def snapshot_send(snapshot_name, remote_host, test=False):
         log.info("Sending snapshot %s to %s", snapshot_path, remote_host)
         run_btrfs_send_receive(snapshot_path, remote_host, remote_snapshots, parent_path, port)
     except ReplicationError as e:
-        if not ALLOW_FULL_SNAPSHOT_RETRY:
-            raise
-        log.warning(
-            "Failed using parent %s. Sending full snapshot %s: %s",
-            parent_path,
-            snapshot_path,
-            str(e),
-        )
-
+        # First delete the failed snapshot on the remote host
         rm_cmd = [
             "ssh",
             "-p",
@@ -683,6 +679,16 @@ def snapshot_send(snapshot_name, remote_host, test=False):
             f"btrfs subvolume delete {remote_snapshots}/{snapshot_name} || true",
         ]
         subprocess.run(rm_cmd, check=False, capture_output=True)
+
+        if not ALLOW_FULL_SNAPSHOT_RETRY:
+            raise
+
+        log.warning(
+            "Failed using parent %s. Sending full snapshot %s: %s",
+            parent_path,
+            snapshot_path,
+            str(e),
+        )
 
         # Send without parent
         run_btrfs_send_receive(snapshot_path, remote_host, remote_snapshots, None, port)
