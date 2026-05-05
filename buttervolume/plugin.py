@@ -946,7 +946,8 @@ def snapshot_restore(snapshot_name, target_name=None):
         if not volume.is_new():
             # backup first before deleting
             timestamp = datetime.now().strftime(DTFORMAT)
-            stamped_name = f"{target_name}@{timestamp}"
+            # Suffix with @backup so that we don't automatically recover or purge them
+            stamped_name = f"{target_name}@{timestamp}@backup"
             stamped_path = join(SNAPSHOTS_PATH, stamped_name)
             volume.snapshot(stamped_path, readonly=True)
             volume_backup = stamped_name
