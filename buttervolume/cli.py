@@ -106,7 +106,8 @@ def snapshot(args, test=False):
     res = get_from(resp, "Snapshot")
     if res:
         print(res)
-    return res
+    is_new = get_from(resp, "IsNew")
+    return res, is_new
 
 
 def schedule(args):
@@ -362,7 +363,7 @@ def runjobs(config=SCHEDULE, test=False, schedule_log=None, timer=TIMER):
                 name, action, timer, enabled = line.values()
                 enabled = enabled != "False"
                 if not enabled:
-                    log.info(f"{action} of {name} is disabled")
+                    log.debug(f"{action} of {name} is disabled")
                     continue
                 now = datetime.now()
                 # just starting, we consider beeing late on snapshots
@@ -393,13 +394,16 @@ def runjobs(config=SCHEDULE, test=False, schedule_log=None, timer=TIMER):
                     log.info("Starting scheduled replication of %s", name)
                     try:
                         ReplicationInProgress.add(name)
-                        snap = snapshot(Arg(name=[name]), test=test)
+                        snap, is_new = snapshot(Arg(name=[name]), test=test)
                         if not snap:
                             log.info("Could not snapshot %s", name)
                             continue
-                        log.info("Successfully snapshotted to %s", snap)
-                        send(Arg(snapshot=[snap], host=[host]), test=test)
-                        log.info("Successfully replicated %s to %s", name, snap)
+                        if is_new:
+                            log.info("Successfully snapshotted to %s", snap)
+                            send(Arg(snapshot=[snap], host=[host]), test=test)
+                            log.info("Successfully replicated %s to %s", name, snap)
+                        else:
+                            log.info("Snapshot %s is not new, skipping replication", snap)
                         schedule_log[action][name] = now
                     except Exception as e:
                         log.warning("Replication failed: %s", e)

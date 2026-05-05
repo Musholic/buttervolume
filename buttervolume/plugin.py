@@ -191,7 +191,7 @@ def safe_handler(func):
         ) as e:
             return {"Err": str(e)}
         except Exception as e:
-            log.error("Unexpected error in %s: %s", func.__name__, str(e))
+            log.exception("Unexpected error in %s: %s", func.__name__, str(e))
             if hasattr(e, "stderr") and e.stderr:
                 return {"Err": e.stderr.decode()}
             return {"Err": f"Unexpected error: {str(e)}"}
@@ -499,7 +499,7 @@ def volume_unmount(req):
         # This schedule must be paused when the volume is unmounted
         schedule(name, "pause", ss_schedule["Action"])
         # We have to send a new snapshot before unmount
-        snapshot_name = snapshot(name)
+        snapshot_name, _ = snapshot(name)
         remote_host = ss_schedule["Action"].split(":")[1]
 
         with contextlib.suppress(SnapshotAlreadyOnRemoteError):
@@ -646,7 +646,7 @@ def snapshot_send_req(req):
     return {"Err": ""}
 
 
-def snapshot_send(snapshot_name, remote_host, test=False):
+def snapshot_send(snapshot_name: str, remote_host: str, test=False) -> None:
     # Validate inputs
     volume_name = snapshot_name.split("@")[0]
     validate_volume_name(volume_name)  # Validate base volume name
@@ -732,12 +732,12 @@ def volume_snapshot(req):
     name = req["Name"]
     validate_volume_name(name)
 
-    timestamped = snapshot(name)
+    timestamped, is_new = snapshot(name)
 
-    return {"Err": "", "Snapshot": timestamped}
+    return {"Err": "", "Snapshot": timestamped, "IsNew": is_new}
 
 
-def snapshot(name):
+def snapshot(name) -> tuple[str, bool]:
     path = join(VOLUMES_PATH, name)
     if not os.path.exists(path) or not btrfs.Subvolume(path).exists():
         raise VolumeNotFoundError(f"Volume '{name}': no such volume")
@@ -761,9 +761,9 @@ def snapshot(name):
         last_snapshot_path = join(SNAPSHOTS_PATH, last_snapshot)
         if btrfs.Subvolume(snapshot_path).is_same_as(last_snapshot_path):
             btrfs.Subvolume(snapshot_path).delete()
-            return last_snapshot
+            return last_snapshot, False
 
-    return timestamped
+    return timestamped, True
 
 
 @route("/VolumeDriver.Snapshot.List", ["GET"])
