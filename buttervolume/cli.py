@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -390,7 +391,11 @@ def runjobs(config=SCHEDULE, test=False, schedule_log=None, timer=TIMER):
                             f"Replication of {name} already in progress, skipping."
                         )
                         continue
-                    _, host = action.split(":")
+                    _, target_host = action.split(":")
+                    hostname = socket.gethostname()
+                    if target_host == hostname:
+                        log.debug(f"Target host {target_host} is the same as current host, skipping replication.")
+                        continue
                     log.info("Starting scheduled replication of %s", name)
                     try:
                         ReplicationInProgress.add(name)
@@ -400,7 +405,7 @@ def runjobs(config=SCHEDULE, test=False, schedule_log=None, timer=TIMER):
                             continue
                         if is_new:
                             log.info("Successfully snapshotted to %s", snap)
-                            send(Arg(snapshot=[snap], host=[host]), test=test)
+                            send(Arg(snapshot=[snap], host=[target_host]), test=test)
                             log.info("Successfully replicated %s to %s", name, snap)
                         else:
                             log.info("Snapshot %s is not new, skipping replication", snap)
