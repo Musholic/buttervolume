@@ -106,6 +106,8 @@ DTFORMAT = getconfig(config, "DTFORMAT", "%Y-%m-%dT%H:%M:%S.%f")
 LOGLEVEL = getattr(logging, getconfig(config, "LOGLEVEL", "INFO"))
 # Prevent retry with full snapshot by default since it can causes high disk usage
 ALLOW_FULL_SNAPSHOT_RETRY = getconfig(config, "ALLOW_FULL_SNAPSHOT_RETRY", "false").lower() == "true"
+# Uses the --compressed-data option of btrfs send if the remote host supports it
+ALLOW_SEND_COMPRESSED_DATA = getconfig(config, "ALLOW_SEND_COMPRESSED_DATA", "true").lower() == "true"
 
 logging.basicConfig(level=LOGLEVEL)
 log = logging.getLogger()
@@ -211,6 +213,8 @@ def run_btrfs_send_receive(
     send_cmd = ["btrfs", "send"]
     if parent_path:
         send_cmd.extend(["-p", parent_path])
+    if ALLOW_SEND_COMPRESSED_DATA:
+        send_cmd.append("--compressed-data")
     send_cmd.append(snapshot_path)
 
     # Build SSH receive command
@@ -254,6 +258,8 @@ def run_btrfs_receive_remote_send(remote_host, remote_snapshot_path, parent_path
     send_cmd = ["btrfs", "send"]
     if parent_path:
         send_cmd.extend(["-p", parent_path])
+    if ALLOW_SEND_COMPRESSED_DATA:
+        send_cmd.append("--compressed-data")
     send_cmd.append(remote_snapshot_path)
 
     # Build SSH send command on the remote host
