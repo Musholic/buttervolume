@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -e
 
@@ -15,12 +15,14 @@ else
     echo "#####################"
 fi
 
+PLUGIN_NAME="ghcr.io/musholic/buttervolume"
+
 # First remove the plugin
-if [ "`docker plugin ls | grep ccomb/buttervolume:$VERSION | wc -l`" == "1" ]; then
+if [ "`docker plugin ls | grep $PLUGIN_NAME:$VERSION | wc -l`" == "1" ]; then
     echo "Removing existing pluging with the same version..."
-    docker plugin rm ccomb/buttervolume:$VERSION
+    docker plugin rm $PLUGIN_NAME:$VERSION
     if [ $? -ne 0 ]; then
-        echo "ccomb/buttervolume:$VERSION cannot be removed. Is it running? First disable it with docker plugin disable ccomb/buttervolume:$VERSION"
+        echo "$PLUGIN_NAME:$VERSION cannot be removed. Is it running? First disable it with docker plugin disable $PLUGIN_NAME:$VERSION"
     fi
 fi
 
@@ -28,11 +30,7 @@ pushd $( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd ) > /de
 
 echo "Creating an archive for the intended version"
 rm -f buttervolume.zip
-if [ "$VERSION" == "latest" ]; then
-    git archive -o buttervolume.zip HEAD
-else
-    git archive -o buttervolume.zip $VERSION
-fi
+git archive -o buttervolume.zip HEAD
 
 
 echo "Building an image with this version..."
@@ -47,11 +45,11 @@ docker rm -vf "$id"
 docker rmi rootfs
 
 echo "Building the new plugin..."
-docker plugin create ccomb/buttervolume:$VERSION .
+docker plugin create $PLUGIN_NAME:$VERSION .
 
 echo "Succeeded!"
 popd > /dev/null
 
 echo
 echo "Now you can enable the plugin with:"
-echo "docker plugin enable ccomb/buttervolume:$VERSION"
+echo "docker plugin enable $PLUGIN_NAME:$VERSION"

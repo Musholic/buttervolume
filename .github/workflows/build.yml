@@ -1,0 +1,64 @@
+name: Build and Push Docker Plugin
+
+on:
+  push:
+    tags:
+      - "*"
+
+  workflow_run:
+    workflows: ["Run Pytest in Devcontainer"]
+    types: [completed]
+    branches: [master]
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (e.g. v1.0.0 or latest)"
+        required: true
+        default: "latest"
+
+jobs:
+  release:
+    if: >
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine Version
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" == "push" ]; then
+            # Get tag name from ref (e.g., refs/tags/v1.0.0 -> v1.0.0)
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Plugin
+        run: ./build.sh ${{ steps.vars.outputs.VERSION }}
+
+      - name: Push Plugin
+        run: |
+          # Ensure lowercase name for Docker
+          PLUGIN_NAME=ghcr.io/musholic/buttervolume
+          VERSION="${{ steps.vars.outputs.VERSION }}"
+
+          docker plugin push $PLUGIN_NAME:$VERSION
