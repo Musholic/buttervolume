@@ -500,6 +500,9 @@ def volume_unmount(req):
         schedule(name, "pause", ss_schedule["Action"])
         # We have to send a new snapshot before unmount
         snapshot_name, _ = snapshot(name)
+        # We tag this snapshot for easy recovery after container restart
+        tag_snapshot(snapshot_name, "unmount")
+
         remote_host = ss_schedule["Action"].split(":")[1]
 
         with contextlib.suppress(SnapshotAlreadyOnRemoteError):
@@ -708,7 +711,7 @@ def manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots, 
     volume_name = snapshot_name.split("@")[0]
 
     # Create local tracking snapshot
-    btrfs.Subvolume(snapshot_path).snapshot(f"{snapshot_path}@{remote_host}", readonly=True)
+    tag_snapshot(snapshot_name, remote_host)
 
     # Remove any existing remote tracking snapshot for this volume
     run_ssh_command(remote_host, f"cd {remote_snapshots}; test ! -d {volume_name}@*@{hostname} || btrfs subvolume delete {volume_name}@*@{hostname}")
@@ -764,6 +767,15 @@ def snapshot(name) -> tuple[str, bool]:
             return last_snapshot, False
 
     return timestamped, True
+
+def tag_snapshot(snapshot_name: str, tag: str):
+    snapshot_path = join(SNAPSHOTS_PATH, snapshot_name)
+    tagged_snapshot_name = f"{snapshot_name}@{tag}"
+    tagged_snapshot_path = join(SNAPSHOTS_PATH, tagged_snapshot_name)
+    # The tagged snapshot may already exists if we are tagging an old snapshot
+    if not os.path.exists(tagged_snapshot_path):
+        btrfs.Subvolume(snapshot_path).snapshot(tagged_snapshot_path, readonly=True)
+    return tagged_snapshot_name
 
 
 @route("/VolumeDriver.Snapshot.List", ["GET"])
@@ -931,14 +943,14 @@ def snapshot_restore(snapshot_name, target_name=None):
     if not os.path.exists(snapshot_path):
         raise SnapshotNotFoundError(f"Snapshot '{snapshot_name}' not found")
 
-    snapshot = btrfs.Subvolume(snapshot_path)
+    snapshot_vol = btrfs.Subvolume(snapshot_path)
     target_name = target_name or snapshot_name.split("@")[0]
     validate_volume_name(target_name)
 
     target_path = join(VOLUMES_PATH, target_name)
     volume = btrfs.Subvolume(target_path)
 
-    if not snapshot.exists():
+    if not snapshot_vol.exists():
         raise SnapshotNotFoundError(f"Snapshot '{snapshot_name}' is not a valid BTRFS subvolume")
 
     volume_backup = None
@@ -953,7 +965,7 @@ def snapshot_restore(snapshot_name, target_name=None):
             volume_backup = stamped_name
         volume.delete()
 
-    snapshot.snapshot(target_path)
+    snapshot_vol.snapshot(target_path)
     return volume_backup
 
 

@@ -1280,8 +1280,8 @@ class TestCase(unittest.TestCase):
         )
         self.assertEqual(resp, {"Err": ""})
 
-        # check we have two local snapshots (with the tracking one)
-        self.assertEqual(2, len(os.listdir(SNAPSHOTS_PATH)))
+        # check we have two local snapshots (with the tracking ones, including @unmount)
+        self.assertEqual(3, len(os.listdir(SNAPSHOTS_PATH)))
 
         # check we have one remote snapshot (with an additional tracking snapshot)
         self.assertEqual(2, len(os.listdir(TEST_REMOTE_PATH)))
