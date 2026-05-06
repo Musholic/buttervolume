@@ -24,7 +24,15 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - suffix: ""
+            runner: ubuntu-latest
+          - suffix: "-arm64"
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -38,11 +46,11 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" == "push" ]; then
             # Get tag name from ref (e.g., refs/tags/v1.0.0 -> v1.0.0)
-            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            echo "VERSION=${GITHUB_REF#refs/tags/}${{ matrix.suffix }}" >> $GITHUB_OUTPUT
           elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "VERSION=${{ github.event.inputs.version }}${{ matrix.suffix }}" >> $GITHUB_OUTPUT
           else
-            echo "VERSION=latest" >> $GITHUB_OUTPUT
+            echo "VERSION=latest${{ matrix.suffix }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Log in to GHCR
