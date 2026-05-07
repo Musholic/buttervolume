@@ -357,6 +357,8 @@ def runjobs(config=SCHEDULE, test=False, schedule_log=None, timer=TIMER):
             log.warning("No config file %s", config)
         return
     name = action = timer = ""
+    # List of newly created snapshots during this run to allow replicating the same snapshot to multiple hosts
+    new_snapshots_by_volume = {}
     # run each action in the schedule if time is elapsed since the last one
     with open(config) as f:
         for line in csv.DictReader(f, fieldnames=FIELDS):
@@ -396,26 +398,29 @@ def runjobs(config=SCHEDULE, test=False, schedule_log=None, timer=TIMER):
                     if target_host == hostname:
                         log.debug(f"Target host {target_host} is the same as current host, skipping replication.")
                         continue
-                    log.info("Starting scheduled replication of %s", name)
+                    log.info("Starting scheduled replication of %s to %s", name, target_host)
                     try:
                         ReplicationInProgress.add(name)
-                        snap, is_new = snapshot(Arg(name=[name]), test=test)
+                        if name in new_snapshots_by_volume:
+                            snap = new_snapshots_by_volume[name]
+                            log.info("Reusing previously created snapshot %s for replication of %s to %s", snap, name, target_host)
+                            is_new = True
+                        else:
+                            snap, is_new = snapshot(Arg(name=[name]), test=test)
+                            if is_new:
+                                log.info("Successfully snapshotted to %s", snap)
+                                new_snapshots_by_volume[name] = snap
                         if not snap:
                             log.info("Could not snapshot %s", name)
                             continue
                         if is_new:
-                            log.info("Successfully snapshotted to %s", snap)
-                            send(Arg(snapshot=[snap], host=[target_host]), test=test)
-                            log.info("Successfully replicated %s to %s", name, snap)
+                            if send(Arg(snapshot=[snap], host=[target_host]), test=test):
+                                log.info("Successfully replicated %s to %s", name, snap)
                         else:
                             log.info("Snapshot %s is not new, skipping replication", snap)
                         schedule_log[action][name] = now
                     except Exception as e:
-                        log.warning("Replication failed: %s", e)
-                        # remove snapshot that was created for the failed replication
-                        if snap:
-                            remove(Arg(name=[snap]), test=test)
-                            log.info("Removed snapshot %s for failed replication", snap)
+                        log.exception("Replication failed: %s", e)
                     finally:
                         ReplicationInProgress.remove(name)
                 if action.startswith("purge:"):

@@ -52,6 +52,12 @@ class ReplicationError(ButtervolumeError):
     pass
 
 
+class SshConnectionError(ReplicationError):
+    """Raised when SSH connection fails"""
+
+    pass
+
+
 class SnapshotAlreadyOnRemoteError(ReplicationError):
     """Raised when a snapshot already exists on the remote"""
 
@@ -105,9 +111,13 @@ TIMER = int(getconfig(config, "TIMER", 60))
 DTFORMAT = getconfig(config, "DTFORMAT", "%Y-%m-%dT%H:%M:%S.%f")
 LOGLEVEL = getattr(logging, getconfig(config, "LOGLEVEL", "INFO"))
 # Prevent retry with full snapshot by default since it can causes high disk usage
-ALLOW_FULL_SNAPSHOT_RETRY = getconfig(config, "ALLOW_FULL_SNAPSHOT_RETRY", "false").lower() == "true"
+ALLOW_FULL_SNAPSHOT_RETRY = (
+    getconfig(config, "ALLOW_FULL_SNAPSHOT_RETRY", "false").lower() == "true"
+)
 # Uses the --compressed-data option of btrfs send if the remote host supports it
-ALLOW_SEND_COMPRESSED_DATA = getconfig(config, "ALLOW_SEND_COMPRESSED_DATA", "true").lower() == "true"
+ALLOW_SEND_COMPRESSED_DATA = (
+    getconfig(config, "ALLOW_SEND_COMPRESSED_DATA", "true").lower() == "true"
+)
 
 logging.basicConfig(level=LOGLEVEL)
 log = logging.getLogger()
@@ -375,7 +385,9 @@ def volumepath(name):
 
 
 def get_remote_snapshots(volume_name, remote_host, remote_snapshots):
-    return run_ssh_command(remote_host, f"cd {remote_snapshots}; shopt -s nullglob; ls -d {volume_name}@*").split("\n")
+    return run_ssh_command(
+        remote_host, f"cd {remote_snapshots}; shopt -s nullglob; ls -d {volume_name}@*"
+    ).split("\n")
 
 
 def run_ssh_command(remote_host, command):
@@ -391,6 +403,9 @@ def run_ssh_command(remote_host, command):
     ]
     result = subprocess.run(ssh_cmd, capture_output=True, text=True)
     if result.returncode != 0:
+        if result.stderr.startswith("ssh:"):
+            # Strip the "ssh: " prefix from the error message for better readability
+            raise SshConnectionError(f"SSH connection failed: {result.stderr[4:].strip()}")
         raise ReplicationError(f"SSH command failed: {result.stderr.strip()}")
     return result.stdout.strip()
 
@@ -402,13 +417,26 @@ def get_last_remote_snapshot(volume_name, remote_host, test=False):
     return get_last_snapshot(snapshots)
 
 
-def snapshot_sync(name, schedule, test=False):
-    remote_host = schedule["Action"].split(":")[1]
-    try:
-        last_remote_snapshot = get_last_remote_snapshot(name, remote_host, test)
-    except SnapshotNotFoundError:
-        last_remote_snapshot = None
+def snapshot_sync(name: str, schedules: list[dict[str, str]], test=False):
+    # List of remote hosts we can sync from if they are available and if they have the latest snapshot
+    remote_host_candidates = [schedule["Action"].split(":")[1] for schedule in schedules]
+    # TODO: check the last remote snapshots from all the remote hosts, if they differ, only sync from the most recent one
+    best_last_remote_snapshot = None
+    remote_hosts = []
+    for remote_host in remote_host_candidates:
+        try:
+            last_remote_snapshot = get_last_remote_snapshot(name, remote_host, test)
+            if not best_last_remote_snapshot or last_remote_snapshot > best_last_remote_snapshot:
+                best_last_remote_snapshot = last_remote_snapshot
+                remote_hosts = [remote_host]
+            elif last_remote_snapshot == best_last_remote_snapshot:
+                remote_hosts.append(remote_host)
 
+        except SnapshotNotFoundError:
+            last_remote_snapshot = None
+        except SshConnectionError as e:
+            last_remote_snapshot = None
+            log.error(f"Failed to get last remote snapshot from {remote_host}: {e}")
     try:
         last_local_snapshot = get_last_snapshot(snapshot_list(name))
     except SnapshotNotFoundError:
@@ -416,15 +444,19 @@ def snapshot_sync(name, schedule, test=False):
 
     volpath = join(VOLUMES_PATH, name)
     # Check if remote snapshot exists and is newer than local
-    if last_remote_snapshot and (
-        not last_local_snapshot or last_remote_snapshot > last_local_snapshot
+    if best_last_remote_snapshot and (
+        not last_local_snapshot or best_last_remote_snapshot > last_local_snapshot
     ):
         # Retrieve the remote snapshot and restore it
         remote_snapshots = SNAPSHOTS_PATH if not test else TEST_REMOTE_PATH
-        remote_snapshot_path = join(remote_snapshots, last_remote_snapshot)
-        parent_snapshot, sent_snapshots = get_parent_snapshot(last_remote_snapshot, remote_host)
+        remote_snapshot_path = join(remote_snapshots, best_last_remote_snapshot)
+        # For now we only consider the first available remote host (can be improved in the future)
+        remote_host = remote_hosts[0]
+        parent_snapshot, sent_snapshots = get_parent_snapshot(
+            best_last_remote_snapshot, remote_host
+        )
         parent_path = join(remote_snapshots, parent_snapshot) if parent_snapshot else None
-        snapshot_path = join(SNAPSHOTS_PATH, last_remote_snapshot)
+        snapshot_path = join(SNAPSHOTS_PATH, best_last_remote_snapshot)
         log.info(
             "Receiving snapshot %s from %s with parent %s",
             remote_snapshot_path,
@@ -449,10 +481,16 @@ def snapshot_sync(name, schedule, test=False):
 
             run_btrfs_receive_remote_send(remote_host, remote_snapshot_path)
 
-        manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots, remote_snapshots)
+        for remote_host in remote_hosts:
+            parent_snapshot, sent_snapshots = get_parent_snapshot(
+                best_last_remote_snapshot, remote_host
+            )
+            manage_local_tracking_snapshots(
+                snapshot_path, remote_host, sent_snapshots, remote_snapshots
+            )
 
         # Restore the remote snapshot
-        snapshot_restore(last_remote_snapshot)
+        snapshot_restore(best_last_remote_snapshot)
     elif last_local_snapshot and not btrfs.Subvolume(volpath).is_same_as(last_local_snapshot):
         # We should restore the last local snapshot if the volume is different
         # (this normally happens if we recreated the volume or if we received a snapshot from a different host)
@@ -467,11 +505,12 @@ def volume_mount(req):
     validate_volume_name(name)
 
     # Check if there is a snapshot_sync schedule for this volume
-    ss_schedule = get_schedule(name, "snapshot_sync")
-    if ss_schedule:
-        snapshot_sync(name, ss_schedule, req.get("Test", False))
-        # This schedule must be resumed when the volume is mounted
-        schedule(name, "resume", ss_schedule["Action"])
+    ss_schedules = get_schedules(name, "snapshot_sync")
+    if ss_schedules:
+        snapshot_sync(name, ss_schedules, req.get("Test", False))
+        for ss_schedule in ss_schedules:
+            # This schedule must be resumed when the volume is mounted
+            schedule(name, "resume", ss_schedule["Action"])
 
     path = volumepath(name)
     return {"Mountpoint": path, "Err": ""}
@@ -494,19 +533,24 @@ def volume_unmount(req):
     name = req["Name"]
 
     # Check if there is a snapshot_sync schedule for this volume
-    ss_schedule = get_schedule(name, "snapshot_sync")
-    if ss_schedule:
-        # This schedule must be paused when the volume is unmounted
-        schedule(name, "pause", ss_schedule["Action"])
+    ss_schedules = get_schedules(name, "snapshot_sync")
+    if len(ss_schedules) > 0:
         # We have to send a new snapshot before unmount
         snapshot_name, _ = snapshot(name)
         # We tag this snapshot for easy recovery after container restart
         tag_snapshot(snapshot_name, "unmount")
 
-        remote_host = ss_schedule["Action"].split(":")[1]
+        for ss_schedule in ss_schedules:
+            # This schedule must be paused when the volume is unmounted
+            schedule(name, "pause", ss_schedule["Action"])
 
-        with contextlib.suppress(SnapshotAlreadyOnRemoteError):
-            snapshot_send(snapshot_name, remote_host, req.get("Test", False))
+            remote_host = ss_schedule["Action"].split(":")[1]
+
+            with contextlib.suppress(SnapshotAlreadyOnRemoteError):
+                try:
+                    snapshot_send(snapshot_name, remote_host, req.get("Test", False))
+                except Exception as e:
+                    log.error(f"Failed to send snapshot to {remote_host}: {e}")
 
     return {"Err": ""}
 
@@ -625,8 +669,7 @@ def get_parent_snapshot(snapshot_name, remote_host):
         [
             s
             for s in snapshot_list(snapshot_name.split("@")[0])
-            if len(s.split("@")) == 3
-            and s.split("@")[2] == remote_host
+            if len(s.split("@")) == 3 and s.split("@")[2] == remote_host
         ]
     )
     latest = sent_snapshots[-1] if len(sent_snapshots) > 0 else None
@@ -666,7 +709,9 @@ def snapshot_send(snapshot_name: str, remote_host: str, test=False) -> None:
         if snapshot_name in remote_snapshot_names:
             # The remote host already has the snapshot but we lack the tracking snapshot
             parent_path = snapshot_path
-            manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots, remote_snapshots)
+            manage_local_tracking_snapshots(
+                snapshot_path, remote_host, sent_snapshots, remote_snapshots
+            )
 
     if parent_path == snapshot_path:
         raise SnapshotAlreadyOnRemoteError()
@@ -714,10 +759,16 @@ def manage_local_tracking_snapshots(snapshot_path, remote_host, sent_snapshots, 
     tag_snapshot(snapshot_name, remote_host)
 
     # Remove any existing remote tracking snapshot for this volume
-    run_ssh_command(remote_host, f"cd {remote_snapshots}; test ! -d {volume_name}@*@{hostname} || btrfs subvolume delete {volume_name}@*@{hostname}")
+    run_ssh_command(
+        remote_host,
+        f"cd {remote_snapshots}; test ! -d {volume_name}@*@{hostname} || btrfs subvolume delete {volume_name}@*@{hostname}",
+    )
 
     # Create a remote tracking snapshot
-    run_ssh_command(remote_host, f"cd {remote_snapshots}; btrfs subvolume snapshot -r {snapshot_name} {snapshot_name}@{socket.gethostname()}")
+    run_ssh_command(
+        remote_host,
+        f"cd {remote_snapshots}; btrfs subvolume snapshot -r {snapshot_name} {snapshot_name}@{socket.gethostname()}",
+    )
 
     # Clean up old tracking snapshots
     for old_snapshot in sent_snapshots:
@@ -768,6 +819,7 @@ def snapshot(name) -> tuple[str, bool]:
 
     return timestamped, True
 
+
 def tag_snapshot(snapshot_name: str, tag: str):
     snapshot_path = join(SNAPSHOTS_PATH, snapshot_name)
     tagged_snapshot_name = f"{snapshot_name}@{tag}"
@@ -795,7 +847,6 @@ def snapshot_list(name=""):
         and btrfs.Subvolume(join(SNAPSHOTS_PATH, s)).is_readonly()
     ]
     return snapshots
-
 
 
 @route("/VolumeDriver.Snapshot.List/<name>", ["GET"])
@@ -878,19 +929,16 @@ def scheduled(_):
     return {"Err": "", "Schedule": schedules}
 
 
-def get_schedules():
+def get_schedules(name=None, action=None) -> list[dict[str, str]]:
+    schedules = []
     if os.path.exists(SCHEDULE):
         with open(SCHEDULE) as f:
-            return list(csv.DictReader(f, fieldnames=FIELDS))
-    return []
-
-
-def get_schedule(name, action):
-    schedules = get_schedules()
-    for schedule in schedules:
-        if schedule["Name"] == name and schedule["Action"].startswith(action):
-            return schedule
-    return None
+            for line in csv.DictReader(f, fieldnames=FIELDS):
+                if (name is None or line["Name"] == name) and (
+                    action is None or line["Action"].startswith(action)
+                ):
+                    schedules.append(line)
+    return schedules
 
 
 @route("/VolumeDriver.Schedule.Pause", ["POST"])
