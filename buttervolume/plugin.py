@@ -698,6 +698,11 @@ def snapshot_send(snapshot_name: str, remote_host: str, test=False) -> None:
     validate_volume_name(volume_name)  # Validate base volume name
     validate_hostname(remote_host)
 
+    hostname = socket.gethostname()
+    if hostname == remote_host:
+        log.info("Tried to send snapshot %s to the same host, skipping", snapshot_name)
+        return
+
     snapshot_path = join(SNAPSHOTS_PATH, snapshot_name)
     remote_snapshots = SNAPSHOTS_PATH if not test else TEST_REMOTE_PATH
 
