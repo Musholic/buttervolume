@@ -420,7 +420,7 @@ def get_last_remote_snapshot(volume_name, remote_host, test=False):
 def snapshot_sync(name: str, schedules: list[dict[str, str]], test=False):
     # List of remote hosts we can sync from if they are available and if they have the latest snapshot
     remote_host_candidates = [schedule["Action"].split(":")[1] for schedule in schedules]
-    # TODO: check the last remote snapshots from all the remote hosts, if they differ, only sync from the most recent one
+    # Check the last remote snapshots from all the remote hosts, if they differ, only sync from the most recent one
     best_last_remote_snapshot = None
     remote_hosts = []
     for remote_host in remote_host_candidates:
@@ -434,9 +434,16 @@ def snapshot_sync(name: str, schedules: list[dict[str, str]], test=False):
 
         except SnapshotNotFoundError:
             last_remote_snapshot = None
+            if last_remote_snapshot == best_last_remote_snapshot:
+                remote_hosts.append(remote_host)
         except SshConnectionError as e:
             last_remote_snapshot = None
             log.error(f"Failed to get last remote snapshot from {remote_host}: {e}")
+
+    # We need to reach at least one host to avoid potential data loss
+    if len(remote_hosts) == 0:
+        raise ReplicationError("No reachable remote host available for snapshot_sync")
+
     try:
         last_local_snapshot = get_last_snapshot(snapshot_list(name))
     except SnapshotNotFoundError:
@@ -907,9 +914,8 @@ def schedule(name, timer, action):
             if line["Action"].startswith("purge:"):
                 return (line["Name"], "purge")
             return (line["Name"], line["Action"])
-        schedule = {
-            get_key(line): line for line in csv.DictReader(f, fieldnames=FIELDS)
-        }
+
+        schedule = {get_key(line): line for line in csv.DictReader(f, fieldnames=FIELDS)}
         key = get_key({"Name": name, "Action": action})
 
         if timer == "pause" and key in schedule:

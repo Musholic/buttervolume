@@ -1222,6 +1222,21 @@ class TestCase(unittest.TestCase):
         # There should be four snapshots now (old, recent, recent@localhost, backup)
         self.assertEqual(4, len(os.listdir(SNAPSHOTS_PATH)))
 
+    def test_snapshot_sync_at_mount_with_unavailable_remotes(self):
+        # create a volume with snapshot_sync schedule
+        name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
+        path = join(VOLUMES_PATH, name)
+        self.app.post(
+            "/VolumeDriver.Create",
+                json.dumps({"Name": name, "Opts": {"schedules": "snapshot_sync:unavailablehost 1,snapshot_sync:unavailablehost2 1"}}),
+        )
+
+        # mount
+        resp = jsonloads(
+            self.app.post("/VolumeDriver.Mount", json.dumps({"Name": name, "Test": True})).body
+        )
+        self.assertEqual(resp["Err"], "No reachable remote host available for snapshot_sync")
+
     def test_snapshot_sync_at_mount_with_no_snapshot(self):
         # create a volume with snapshot_sync schedule
         name = PREFIX_TEST_VOLUME + uuid.uuid4().hex
