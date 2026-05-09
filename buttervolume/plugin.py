@@ -902,17 +902,24 @@ def schedule(name, timer, action):
         with open(SCHEDULE, "w") as f:
             f.write("")
     with open(SCHEDULE) as f:
+        # Allows automatic overriding of purge actions
+        def get_key(line):
+            if line["Action"].startswith("purge:"):
+                return (line["Name"], "purge")
+            return (line["Name"], line["Action"])
         schedule = {
-            (line["Name"], line["Action"]): line for line in csv.DictReader(f, fieldnames=FIELDS)
+            get_key(line): line for line in csv.DictReader(f, fieldnames=FIELDS)
         }
-        if timer == "pause" and (name, action) in schedule:
-            schedule[(name, action)]["Active"] = False
-        elif timer == "resume" and (name, action) in schedule:
-            schedule[(name, action)]["Active"] = True
-        elif timer in ("0", "delete") and (name, action) in schedule:
-            del schedule[(name, action)]
+        key = get_key({"Name": name, "Action": action})
+
+        if timer == "pause" and key in schedule:
+            schedule[key]["Active"] = False
+        elif timer == "resume" and key in schedule:
+            schedule[key]["Active"] = True
+        elif timer in ("0", "delete") and key in schedule:
+            del schedule[key]
         elif timer.isnumeric() and timer not in ("0", "delete"):
-            schedule[(name, action)] = {
+            schedule[key] = {
                 "Name": name,
                 "Action": action,
                 "Timer": timer,

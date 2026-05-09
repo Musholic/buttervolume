@@ -890,6 +890,22 @@ class TestCase(unittest.TestCase):
             json.dumps({"Name": name, "Action": "purge:2h", "Timer": 0}),
         )
 
+    def test_schedule_duplicate_purge(self):
+        # create a volume with a file
+        name = "test_vol"
+        # schedule a purge of the volume
+        self.app.post(
+            "/VolumeDriver.Schedule",
+            json.dumps({"Name": name, "Action": "purge:2h", "Timer": 60}),
+        )
+        # Then overwrite it
+        self.app.post(
+            "/VolumeDriver.Schedule",
+            json.dumps({"Name": name, "Action": "purge:1h:1w", "Timer": 60}),
+        )
+        with open(SCHEDULE) as x:
+            self.assertEqual(x.read(), "test_vol,purge:1h:1w,60,True\n")
+
     def test_schedule_purge_backward_compat(self):
         """Test that scheduler handles deprecated 2h:2h patterns with warnings"""
         # create a volume with a file
