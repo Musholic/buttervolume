@@ -386,11 +386,11 @@ def volumepath(name):
 
 def get_remote_snapshots(volume_name, remote_host, remote_snapshots):
     return run_ssh_command(
-        remote_host, f"cd {remote_snapshots}; shopt -s nullglob; ls -d {volume_name}@*"
+        remote_host, f"cd {remote_snapshots}; shopt -s nullglob; ls -d {volume_name}@*", timeout=30
     ).split("\n")
 
 
-def run_ssh_command(remote_host, command):
+def run_ssh_command(remote_host, command, timeout=None):
     port = os.getenv("SSH_PORT", "1122")
     ssh_cmd = [
         "ssh",
@@ -401,13 +401,18 @@ def run_ssh_command(remote_host, command):
         remote_host,
         command,
     ]
-    result = subprocess.run(ssh_cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        if result.stderr.startswith("ssh:"):
-            # Strip the "ssh: " prefix from the error message for better readability
-            raise SshConnectionError(f"SSH connection failed: {result.stderr[4:].strip()}")
-        raise ReplicationError(f"SSH command failed: {result.stderr.strip()}")
-    return result.stdout.strip()
+    try:
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode != 0:
+            if result.stderr.startswith("ssh:"):
+                # Strip the "ssh: " prefix from the error message for better readability
+                raise SshConnectionError(
+                    f"SSH connection failed ({command}): {result.stderr[4:].strip()}"
+                )
+            raise SshConnectionError(f"SSH command failed ({command}): {result.stderr.strip()}")
+        return result.stdout.strip()
+    except Exception as e:
+        raise SshConnectionError(f"SSH command failed ({command})") from e
 
 
 def get_last_remote_snapshot(volume_name, remote_host, test=False):
@@ -436,7 +441,7 @@ def snapshot_sync(name: str, schedules: list[dict[str, str]], test=False):
             last_remote_snapshot = None
             if last_remote_snapshot == best_last_remote_snapshot:
                 remote_hosts.append(remote_host)
-        except SshConnectionError as e:
+        except ReplicationError as e:
             last_remote_snapshot = None
             log.error(f"Failed to get last remote snapshot from {remote_host}: {e}")
 
@@ -981,7 +986,7 @@ def get_last_snapshot(snapshots: list[str]):
     # Filter out tracking snapshots
     snapshots = [s for s in snapshots if len(s.split("@")) == 2]
     if not snapshots:
-        raise SnapshotNotFoundError(f"No snapshots found")
+        raise SnapshotNotFoundError("No snapshots found")
     return sorted(snapshots)[-1]
 
 
