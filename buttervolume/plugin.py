@@ -428,22 +428,27 @@ def snapshot_sync(name: str, schedules: list[dict[str, str]], test=False):
     # Check the last remote snapshots from all the remote hosts, if they differ, only sync from the most recent one
     best_last_remote_snapshot = None
     remote_hosts = []
+    hostname = socket.gethostname()
     for remote_host in remote_host_candidates:
-        try:
-            last_remote_snapshot = get_last_remote_snapshot(name, remote_host, test)
-            if not best_last_remote_snapshot or last_remote_snapshot > best_last_remote_snapshot:
-                best_last_remote_snapshot = last_remote_snapshot
-                remote_hosts = [remote_host]
-            elif last_remote_snapshot == best_last_remote_snapshot:
-                remote_hosts.append(remote_host)
+        # If the remote host is ourself, we consider it in the list of remote hosts to allow local sync
+        if remote_host == hostname:
+            remote_hosts.append(remote_host)
+        else:
+            try:
+                last_remote_snapshot = get_last_remote_snapshot(name, remote_host, test)
+                if not best_last_remote_snapshot or last_remote_snapshot > best_last_remote_snapshot:
+                    best_last_remote_snapshot = last_remote_snapshot
+                    remote_hosts = [remote_host]
+                elif last_remote_snapshot == best_last_remote_snapshot:
+                    remote_hosts.append(remote_host)
 
-        except SnapshotNotFoundError:
-            last_remote_snapshot = None
-            if last_remote_snapshot == best_last_remote_snapshot:
-                remote_hosts.append(remote_host)
-        except ReplicationError as e:
-            last_remote_snapshot = None
-            log.error(f"Failed to get last remote snapshot from {remote_host}: {e}")
+            except SnapshotNotFoundError:
+                last_remote_snapshot = None
+                if last_remote_snapshot == best_last_remote_snapshot:
+                    remote_hosts.append(remote_host)
+            except ReplicationError as e:
+                last_remote_snapshot = None
+                log.error(f"Failed to get last remote snapshot from {remote_host}: {e}")
 
     # We need to reach at least one host to avoid potential data loss
     if len(remote_hosts) == 0:
